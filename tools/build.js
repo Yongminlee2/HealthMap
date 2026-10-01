@@ -64,6 +64,38 @@ for (const f of gj.features) {
   }
   dongCenter.set(p.adm_cd2, String(id));
 }
+// 사용자 제공 보건소-동 매핑(data/centers_dong_map_2026.tsv, 지역사회건강조사 가중치 동 목록)이 기준이다.
+// 위 규칙은 초안일 뿐이고, 여기서 동 이름으로 대조해 어긋나는 동만 바로잡은 뒤 전수 일치를 확인한다(안 맞으면 빌드 중단).
+const ALIAS = { '안양8동': '명학동', '안양9동': '병목안동', '대소면': '대소읍' };                // 2026 명칭 변경(같은 동)
+const SEP = /[·.,ㆍ・\s]/g;
+// 숫자 바로 앞의 '제'는 양쪽 모두 무시한다(제공 파일은 "망원제1동", 경계 자료는 "망원1동", 일부는 "상일제2동"처럼 섞여 있음)
+const normMine = n => (ALIAS[n.trim()] || n.trim()).replace(/제+(?=\d)/g, '').replace(SEP, '');
+const normUser = normMine;
+const userMap = new Map();
+for (const l of fs.readFileSync(D('centers_dong_map_2026.tsv'), 'utf8').trim().split(/\r?\n/).slice(1)) {
+  const [code, nm] = l.split('\t'); if (!userMap.has(code)) userMap.set(code, new Set()); userMap.get(code).add(normUser(nm));
+}
+const byName = new Map(); for (const [code, set] of userMap) for (const n of set) { if (!byName.has(n)) byName.set(n, []); byName.get(n).push(code); }
+const sggNames = new Map(); for (const f of gj.features) { const k = f.properties.sgg; if (!sggNames.has(k)) sggNames.set(k, new Set()); sggNames.get(k).add(normMine(tail(f.properties.adm_nm))); }
+const fixes = [];
+for (const f of gj.features) {
+  const p = f.properties, n = normMine(tail(p.adm_nm)), c0 = dongCenter.get(p.adm_cd2);
+  if (userMap.get(c0) && userMap.get(c0).has(n)) continue;
+  const cand = (byName.get(n) || []).filter(c => (GROUP[c.slice(0, 2)] || []).includes(p.sidonm));
+  const score = c => [...userMap.get(c)].filter(x => sggNames.get(p.sgg).has(x)).length, best = Math.max(...cand.map(score));
+  const top = cand.filter(c => score(c) === best);
+  if (!cand.length || top.length !== 1 || best < 1) throw new Error(`제공 매핑에서 ${p.adm_nm} 의 보건소를 정할 수 없음 (후보 ${cand.join(',')})`);
+  dongCenter.set(p.adm_cd2, top[0]); fixes.push({ dong: p.adm_nm, from: c0, to: top[0] });
+}
+{
+  const assigned = new Map();
+  for (const f of gj.features) { const id = dongCenter.get(f.properties.adm_cd2); if (!assigned.has(id)) assigned.set(id, []); assigned.get(id).push(normMine(tail(f.properties.adm_nm))); }
+  const bad = [];
+  for (const [code, set] of userMap) { const a = assigned.get(code) || []; if (a.length !== set.size || a.some(x => !set.has(x))) bad.push(`${code}: 내 ${a.length}개 / 제공 ${set.size}개`); }
+  for (const code of assigned.keys()) if (!userMap.has(code)) bad.push(code + ': 제공 파일에 없는 보건소');
+  if (bad.length) throw new Error('제공 매핑과 불일치: ' + bad.join(' | '));
+  console.log(`제공 매핑과 대조: 보건소 ${userMap.size}곳 동 ${gj.features.length}개 전부 일치 (규칙 초안에서 바로잡은 동 ${fixes.length}개)`);
+}
 // 검증: 모든 행정동이 정확히 한 보건소에, 모든 보건소가 행정동 1개 이상
 const cnt = new Map(); for (const id of dongCenter.values()) cnt.set(id, (cnt.get(id) || 0) + 1);
 for (const c of centersRaw) if (!cnt.get(c.id)) throw new Error('행정동 없는 보건소 ' + c.id + ' ' + c.name);
@@ -119,10 +151,10 @@ const report = ['# 보건소 ↔ 행정동 기본 연결에서 사람이 확인�
   '보건소 260곳은 data/centers_2026.tsv(사용자 제공)가 기준이고, 아래는 시군구 단위로 딱 떨어지지 않아 규칙으로 정한 곳입니다.', '',
   '## 한 시를 둘 이상의 보건소가 나누는 곳 (읍면동 단위 지정)'];
 for (const sp of Object.values(SPLIT)) for (const id of [String(sp.rest), ...Object.keys(sp.by)]) report.push(`- ${nameOf.get(id).sido} ${nameOf.get(id).name} (${id}): ${dongsOf(id).join(', ')}`);
-report.push('', '## 관할을 추정으로 정한 곳 (보건소 목록은 사용자 제공 260곳이 기준)', '- 평택시: 송탄보건소 관할은 웹 자료가 엇갈려 위 읍면동으로 정했습니다. 공식 관할표로 확인하세요.',
-  '- 화성시 효행구(봉담읍·매송면·비봉면·정남면·기배동): 제공된 목록에 효행구보건소가 없어 만세구보건소(31700210)에 포함했습니다.',
-  '- 제주시 추자면은 제주보건소에 넣었습니다.',
-  '- 인천 서구보건소(31700374)는 2026-07 분할 후 서해구를 맡는 것으로 보았습니다.',
+report.push('', '## 기준', '- 보건소-동 연결은 사용자가 제공한 매핑 파일(data/centers_dong_map_2026.tsv)과 전수 일치합니다(보건소 260곳, 동 3,558개). 빌드할 때마다 다시 대조하고 하나라도 다르면 중단합니다.',
+  '- 규칙 초안(시군구=보건소)에서 제공 매핑에 맞춰 바로잡은 동 ' + fixes.length + '개: ' + (fixes.map(x => `${x.dong}(${nameOf.get(x.from).name}→${nameOf.get(x.to).name})`).join(', ') || '없음'),
+  '- 화성시 효행구(2026-02 신설) 지역은 제공 매핑 기준으로 봉담읍·매송면·비봉면은 만세구보건소, 기배동·정남면은 병점구보건소입니다.',
+  '- 인천 서구보건소는 2026-07 분할 후 서해구를 맡습니다.',
   '', '## 시군구 여러 곳을 한 보건소가 맡는 곳');
 for (const [id, c] of nameOf) { const s = [...sggCenter].filter(([, v]) => v === id); if (s.length > 1) report.push(`- ${c.sido} ${c.name} (${id}): ${s.map(([k]) => sggs.get(k).nm).join(' + ')}`); }
 report.push('', '## 경계 자료 기준일', '- 행정동: 2026-07-01 (SGIS 원자료)', '- 법정동: 2023-07-29 (국토교통부 법정구역 shp). 소속 행정동은 2026 기준으로 연결했습니다. 최신 법정동 shp 는 V-World 로그인 후 받아야 합니다.', '');
@@ -135,13 +167,10 @@ fs.writeFileSync(D('exceptions_report.txt'), report.join('\n'));
   const SIDO_ORDER = ['서울특별시', '부산광역시', '대구광역시', '인천광역시', '전남광주통합특별시', '대전광역시', '울산광역시', '세종특별자치시', '경기도', '강원특별자치도', '충청북도', '충청남도', '전북특별자치도', '경상북도', '경상남도', '제주특별자치도'];
   const sidoRank = s => { const i = SIDO_ORDER.indexOf(s); return i < 0 ? 99 : i; };
   const spacedSgg = nm => nm.replace(/^(.+?시)(.+구)$/, '$1 $2');
-  const NOTE_SONG = new Set(SPLIT.평택시.by[31700586]);
   const noteOf = f => {
-    const p = f.properties, t = tail(p.adm_nm);
-    if (p.sggnm === '평택시' && (NOTE_SONG.has(t) || dongCenter.get(p.adm_cd2) === '31700357')) return '관할 추정(평택 송탄/평택 구분, 공식 관할표 확인 필요)';
-    if (p.sggnm === '화성시효행구') return '목록에 효행구보건소가 없어 만세구보건소에 포함';
-    if (p.sggnm === '제주시' && t === '추자면') return '관할 추정(제주보건소로 분류)';
-    if (p.sggnm === '서해구') return '인천 서구 분할 후 서구보건소가 서해구를 맡는 것으로 분류';
+    const p = f.properties;
+    if (p.sggnm === '화성시효행구') return '효행구(2026-02 신설) 지역: 제공된 매핑 기준으로 만세구/병점구보건소에 배정';
+    if (p.sggnm === '서해구') return '인천 서구 분할 후 서구보건소가 서해구를 맡음';
     return '';
   };
   const dongRows = [['행정동코드', '행정동명', '보건소코드', '보건소명', '시도', '시군구', '비고']];
@@ -165,7 +194,11 @@ fs.writeFileSync(D('exceptions_report.txt'), report.join('\n'));
   add('보건소별', centerRows, [12, 18, 26, 10, 30, 90, 46]);
   add('법정동별', bjdRows, [12, 16, 18, 18, 18, 14, 12, 26]);
   const wsn = XLSX.utils.aoa_to_sheet(noteRows); wsn['!cols'] = [{ wch: 140 }]; XLSX.utils.book_append_sheet(wb, wsn, '확인필요');
-  XLSX.writeFile(wb, path.join(root, '보건소_행정동_매핑표.xlsx'));
+  try { XLSX.writeFile(wb, path.join(root, '보건소_행정동_매핑표.xlsx')); }
+  catch (e) {                                                                // 엑셀로 열어 둔 상태면 잠겨 있다 → 옆에 '_최신' 이름으로 저장
+    if (e.code !== 'EBUSY' && e.code !== 'EPERM') throw e;
+    XLSX.writeFile(wb, path.join(root, '보건소_행정동_매핑표_최신.xlsx')); console.log('※ 매핑표 엑셀이 열려 있어 "보건소_행정동_매핑표_최신.xlsx"로 저장했습니다. 엑셀을 닫고 다시 빌드하면 원래 이름으로 저장됩니다.');
+  }
   console.log(`매핑표 엑셀: 행정동 ${dongRows.length - 1}행, 보건소 ${centerRows.length - 1}행, 법정동 ${bjdRows.length - 1}행`);
 }
 

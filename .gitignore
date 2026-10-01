@@ -4,3 +4,4 @@ data/*.geojson
 data/emd/
 data/*.zip
 data/tmp/
+~$*
