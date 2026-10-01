@@ -58,13 +58,11 @@ const defCenter = new Map(CENTERS.map(c => [c.id, c]));
 
 // ── 상태 ────────────────────────────────────────────────
 const LS = 'healthmap.v2';
-const S = {
-  values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, unit: 'dong',
-  legend: { title: '', unit: '', n: 5, mode: 'equal', palette: '파랑', reverse: false, breaks: [], colors: [], customColors: false, noData: '#e3e7eb' },
-};
-try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); Object.assign(S, d); S.legend = Object.assign({}, S.legend, d.legend); } catch (e) {}
+const newLegend = () => ({ title: '', unit: '', n: 5, mode: 'equal', palette: '파랑', reverse: false, breaks: [], colors: [], customColors: false, noData: '#e3e7eb' });
+const S = { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', legend: newLegend() };
+try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); Object.assign(S, d); S.legend = Object.assign(newLegend(), d.legend); } catch (e) {}
 let sel = '', editMode = false, dongHC = [], hc = [], cmap = new Map();
-const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} };
+const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} renderSaveBar(); scheduleAuto(); };
 
 function allCenters() {
   const m = new Map();
@@ -85,8 +83,9 @@ const unitLabel = i => L === A ? dongLabel(i) : A.props[A.idx.get(L.props[i].p)]
 const map = $('#map'), ov = $('#overlay'), stage = $('#stage'), tip = $('#tip');
 map.innerHTML = '<g id="gDong" fill-rule="evenodd"></g><g id="gSel" fill="#ff8a00" fill-opacity=".55" stroke="none" pointer-events="none"></g>' +
   '<path id="gInner" fill="none" stroke="#fff" stroke-linejoin="round" pointer-events="none"/>' +
-  '<path id="gBorder" fill="none" stroke="#2b3440" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>';
-const gDong = $('#gDong'), gSel = $('#gSel'), gInner = $('#gInner'), gBorder = $('#gBorder'), dongEls = gDong.children;
+  '<path id="gBorder" fill="none" stroke="#2b3440" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>' +
+  '<path id="gSido" fill="none" stroke="#0b1220" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>';
+const gDong = $('#gDong'), gSel = $('#gSel'), gInner = $('#gInner'), gBorder = $('#gBorder'), gSido = $('#gSido'), dongEls = gDong.children;
 const [minX, minY, maxX, maxY] = A.bbox, BW = maxX - minX, BH = maxY - minY;
 let vb = { x: 0, y: 0, w: 1, h: 1 }, lastCW = 0, strokesDirty = true, borderFull = '', borderLow = '';
 
@@ -94,7 +93,7 @@ function applyVB() {
   map.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
   if (strokesDirty) {                                          // 선 굵기는 화면 기준 px 로 맞춘다(확대할 때만 다시 계산)
     const sc = stage.clientWidth / vb.w;
-    gBorder.setAttribute('stroke-width', (1.4 / sc).toFixed(3)); gInner.setAttribute('stroke-width', (0.5 / sc).toFixed(3));
+    gBorder.setAttribute('stroke-width', (1.4 / sc).toFixed(3)); gInner.setAttribute('stroke-width', (0.5 / sc).toFixed(3)); gSido.setAttribute('stroke-width', (2.6 / sc).toFixed(3));
     strokesDirty = false;
   }
 }
@@ -145,7 +144,17 @@ function drawMesh() {
   borderFull = border.join(''); borderLow = borderLo.join('');
   borderIsLow = false; gBorder.setAttribute('d', borderFull); syncBorder();
   gInner.setAttribute('d', S.showDong ? inner.join('') : '');
+  gSido.setAttribute('d', S.showSido ? sidoPath() : '');
   drawSel();
+}
+// 시도 경계: 행정구역 자체의 경계라 보건소 배정을 바꿔도 그대로다(기본 연결의 시도 기준). 층마다 한 번만 만든다.
+function sidoPath() {
+  if (L.sidoD === undefined) {
+    const so = Array.from({ length: L.n }, (_, i) => defCenter.get(L === A ? A.props[i].g : A.props[A.idx.get(L.props[i].p)].g).sido), out = [];
+    for (let a = 0; a < L.arcA.length; a++) { const u = L.arcA[a]; if (u < 0) continue; const v = L.arcB[a]; if (u !== v && so[u] !== so[v]) out.push(L.arcD[a]); }   // 해안선은 보건소 경계선이 이미 그린다
+    L.sidoD = out.join('');
+  }
+  return L.sidoD;
 }
 function drawSel() { gSel.innerHTML = (editMode && sel) ? hc.map((c, i) => c === sel ? `<path d="${L.d[i]}"/>` : '').join('') : ''; }
 function setUnit(kind) {
@@ -340,6 +349,8 @@ $('#ltable').addEventListener('change', e => {
   b[i] = v; Lg.mode = 'custom'; refreshColors();
 });
 
+$('#showSido').checked = S.showSido !== false;
+$('#showSido').onchange = e => { S.showSido = e.target.checked; refresh(); };
 $('#showDong').checked = S.showDong;
 $('#showDong').onchange = e => { S.showDong = e.target.checked; refresh(); };
 $('#unitSel').onchange = e => setUnit(e.target.value);
@@ -364,8 +375,8 @@ $('#cdel').onclick = () => {
   S.extra = S.extra.filter(e => e.id !== sel); delete S.values[sel]; sel = ''; refresh();
 };
 $('#mapExport').onclick = () => download(csvBlob(mappingRows()), '보건소_행정동_배정표.csv');
-$('#mapImport').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!confirm('지금까지의 배정 편집 내용을 이 파일로 덮어씁니다. 계속할까요?')) return; try { importMapping(await readTable(f)); } catch (err) { msg('#assignMsg', '파일을 읽지 못했습니다: ' + err.message, true); } };
-$('#resetEdit').onclick = () => { if (!confirm('배정·이름 편집을 모두 지우고 기본으로 되돌릴까요?')) return; S.overrides = {}; S.overridesB = {}; S.extra = []; S.renamed = {}; sel = ''; refresh(); msg('#assignMsg', '초기화했습니다.'); };
+$('#mapImport').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!confirm('지금까지의 배정 편집 내용을 이 파일로 덮어씁니다. 계속할까요?')) return; if (!(await backupFirst('배정표 불러오기'))) return; try { importMapping(await readTable(f)); } catch (err) { msg('#assignMsg', '파일을 읽지 못했습니다: ' + err.message, true); } };
+$('#resetEdit').onclick = async () => { if (!confirm('배정·이름 편집을 모두 지우고 기본으로 되돌릴까요?')) return; if (!(await backupFirst('배정 초기화'))) return; S.overrides = {}; S.overridesB = {}; S.extra = []; S.renamed = {}; sel = ''; refresh(); msg('#assignMsg', '초기화했습니다.'); };
 
 // 확대·이동·클릭·툴팁
 let drag = null, moved = false;
@@ -420,6 +431,133 @@ $('#pngBtn').onclick = () => {
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 };
 
+
+// ── 저장·이력: index.html 이 있는 폴더에 파일로 쌓는다 (크롬/엣지). 안 되는 브라우저는 다운로드 파일 ──
+const FS_OK = typeof window.showDirectoryPicker === 'function';
+const META_KEY = 'healthmap.save', AUTO_MS = 15000, AUTO_KEEP = 30, AUTO_NAME = '자동저장', p2 = n => String(n).padStart(2, '0');
+let meta = { hash: '', at: '' }; try { Object.assign(meta, JSON.parse(localStorage.getItem(META_KEY) || '{}')); } catch (e) {}
+let dir = null, dirState = FS_OK ? 'none' : 'unsupported', saves = [], autoTimer = 0;      // dirState: none | ready | needs(권한 다시 필요) | unsupported
+const stateHash = () => JSON.stringify(Core.pickState(S));
+const hasWork = () => { const m = Core.summarize(S); return !!(m.values || m.dongEdits || m.bjdEdits || m.newCenters || Object.keys(S.renamed).length || S.legend.title); };
+const fmtTime = iso => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+const hmsg = (t, err) => msg('#histMsg', t, err);
+function renderSaveBar() {
+  const el = $('#saveState'); if (!el) return;
+  const clean = !hasWork(), same = stateHash() === meta.hash;
+  el.textContent = clean ? '편집한 내용이 없습니다' : same ? '✓ 저장됨 ' + meta.at : (dirState === 'ready' ? '● 곧 자동 저장됩니다' : '● 저장 안 됨');
+  el.className = clean ? '' : same ? 'ok' : 'dirty';
+}
+function markSaved() { meta = { hash: stateHash(), at: fmtTime(new Date()) }; try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} renderSaveBar(); }
+// 폴더가 연결돼 있으면 고친 뒤 15초 조용해질 때 한 벌을 자동으로 쌓는다(자동 저장본은 최근 30개만 남김)
+function scheduleAuto() {
+  clearTimeout(autoTimer);
+  if (dirState !== 'ready' || !hasWork() || stateHash() === meta.hash) return;
+  autoTimer = setTimeout(() => { if (dirState === 'ready' && hasWork() && stateHash() !== meta.hash) saveSnapshot(AUTO_NAME, true, true); }, AUTO_MS);
+}
+
+const idb = () => new Promise((res, rej) => { const r = indexedDB.open('healthmap', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+const idbGet = async k => { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); };
+const idbSet = async (k, v) => { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); q.onsuccess = () => res(); q.onerror = () => rej(q.error); }); };
+
+async function listSaves() {
+  saves = [];
+  try {
+    for await (const [name, h] of dir.entries()) {
+      if (h.kind !== 'file' || !/^보건소지도_.*\.json$/.test(name)) continue;
+      const snap = Core.parseSnapshot(await (await h.getFile()).text());
+      if (snap) saves.push({ file: name, snap });
+    }
+    saves.sort((a, b) => b.snap.savedAt.localeCompare(a.snap.savedAt));
+  } catch (e) { dirState = e.name === 'NotFoundError' ? 'none' : 'needs'; }
+}
+async function useDir(h) { dir = h; dirState = 'ready'; try { await idbSet('dir', h); } catch (e) {} await listSaves(); renderHistory(); scheduleAuto(); }
+async function pickDir() {
+  try { await useDir(await window.showDirectoryPicker({ id: 'healthmap', mode: 'readwrite' })); }
+  catch (e) { if (e.name !== 'AbortError') hmsg(e.name === 'SecurityError' ? '브라우저가 막아 둔 폴더입니다(바탕화면·문서·다운로드 폴더 자체 등). 그 안에 새 폴더를 만들고 index.html을 옮긴 뒤 그 폴더를 골라 주세요.' : '폴더를 열지 못했습니다: ' + e.message, true); }
+}
+async function reconnect() {
+  try { if ((await dir.requestPermission({ mode: 'readwrite' })) === 'granted') { dirState = 'ready'; await listSaves(); } } catch (e) {}
+  renderHistory(); scheduleAuto(); return dirState === 'ready';
+}
+async function initDir() {
+  if (!FS_OK) return renderHistory();
+  try { const h = await idbGet('dir'); if (h) { dir = h; dirState = (await h.queryPermission({ mode: 'readwrite' })) === 'granted' ? 'ready' : 'needs'; if (dirState === 'ready') await listSaves(); } } catch (e) {}
+  renderHistory(); scheduleAuto();
+}
+const fileExists = async n => { try { await dir.getFileHandle(n); return true; } catch (e) { return false; } };
+
+// 지금 상태를 저장. 성공하면 true. auto=사람이 누르지 않은 저장, markDone=저장 표시까지 할지(자동저장)
+async function saveSnapshot(name, auto, markDone) {
+  const now = new Date(), snap = Core.makeSnapshot(Core.pickState(S), name, auto, now);
+  try {
+    if (!FS_OK) { download(new Blob([JSON.stringify(snap, null, 1)], { type: 'application/json' }), Core.snapshotFileName(now, name)); if (!auto) markSaved(); return true; }
+    if (!dir) { await pickDir(); if (!dir) return false; }
+    if (dirState === 'needs' && !(await reconnect())) return false;
+    let fname = Core.snapshotFileName(now, name), k = 2;
+    while (await fileExists(fname)) fname = fname.replace(/(-\d+)?\.json$/, `-${k++}.json`);
+    const w = await (await dir.getFileHandle(fname, { create: true })).createWritable();
+    await w.write(JSON.stringify(snap, null, 1)); await w.close();
+    if (!auto || markDone) markSaved();
+    await listSaves();
+    const autos = saves.filter(x => x.snap.auto && x.snap.name === AUTO_NAME);
+    if (autos.length > AUTO_KEEP) { for (const x of autos.slice(AUTO_KEEP)) { try { await dir.removeEntry(x.file); } catch (e) {} } await listSaves(); }
+    renderHistory(); return true;
+  } catch (e) { if (!auto) alert('저장하지 못했습니다: ' + e.message); else { dirState = 'needs'; renderHistory(); } return false; }
+}
+// 지우거나 덮어쓰기 전에: 저장 안 된 작업이 있으면 자동백업(폴더 있을 때) 또는 확인
+async function backupFirst(why) {
+  if (!hasWork() || stateHash() === meta.hash) return true;
+  if (FS_OK && dir && dirState === 'ready') return saveSnapshot(`자동백업(${why} 전)`, true);
+  return confirm('저장하지 않은 작업이 있는데 저장 폴더가 없어 되돌릴 수 없습니다. 계속할까요?');
+}
+function applyState(st) {
+  const d = Core.pickState(st);
+  Object.assign(S, { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong' }, d);
+  S.legend = Object.assign(newLegend(), d.legend);
+  sel = ''; $('#showDong').checked = S.showDong; $('#showSido').checked = S.showSido; setUnit(S.unit === 'bjd' ? 'bjd' : 'dong');
+}
+async function restore(snap) {
+  const label = snap.name || fmtTime(snap.savedAt);
+  if (!confirm(`'${label}' 저장본을 불러올까요?\n지금 작업이 저장돼 있지 않으면 자동백업으로 남깁니다.`)) return;
+  if (!(await backupFirst('불러오기'))) return;
+  applyState(snap.state); markSaved(); hmsg(`'${label}'을(를) 불러왔습니다.`);
+}
+async function quickSave() {
+  const name = $('#saveName').value.trim();
+  if (await saveSnapshot(name, false)) { $('#saveName').value = ''; hmsg(FS_OK ? '저장했습니다. 아래 이력에 쌓였습니다.' : '저장 파일을 내려받았습니다.'); }
+}
+function renderHistory() {
+  $('#histGuide').textContent = FS_OK ? '처음 한 번만 index.html이 들어 있는 폴더를 골라 주세요. 그 뒤로는 고치는 대로 그 폴더에 저장 파일이 자동으로 쌓이고, 아래 이력에서 예전 상태로 되돌릴 수 있습니다. (브라우저를 껐다 켜면 폴더 연결을 한 번 다시 눌러야 합니다)'
+    : '이 브라우저는 폴더 저장을 지원하지 않아, 저장할 때마다 파일이 다운로드 폴더에 생깁니다. 크롬이나 엣지를 쓰면 폴더에 자동으로 쌓이고 이력 목록도 볼 수 있습니다.';
+  $('#dirInfo').textContent = { none: '아직 연결하지 않았습니다. [폴더 연결]을 누르고 index.html이 들어 있는 폴더를 골라 주세요.', ready: `📁 ${dir && dir.name} (연결됨 · 자동 저장 켜짐)`, needs: `📁 ${dir && dir.name} — 연결이 풀렸습니다. [폴더 다시 연결]을 눌러 주세요.`, unsupported: '지원하지 않는 브라우저입니다.' }[dirState];
+  $('#dirPick').hidden = !FS_OK; $('#dirPick').textContent = dir ? '폴더 바꾸기' : '폴더 연결'; $('#dirReconnect').hidden = dirState !== 'needs';
+  $('#histList').innerHTML = dirState !== 'ready' ? `<div class="hint">${FS_OK ? '폴더가 연결되면 저장 이력이 여기에 나옵니다.' : '저장 파일은 아래 [저장 파일 직접 불러오기]로 불러오세요.'}</div>`
+    : !saves.length ? '<div class="hint">아직 저장한 기록이 없습니다.</div>'
+    : saves.map((x, i) => { const m = x.snap.summary || {}; return `<div class="hist"><div class="t">${esc(x.snap.name || '이름 없음')}${x.snap.auto ? '<span class="tag">자동</span>' : ''}</div>` +
+        `<div class="s">${fmtTime(x.snap.savedAt)} · 값 ${m.values || 0}개 · 배정 변경 ${(m.dongEdits || 0) + (m.bjdEdits || 0)}건${m.newCenters ? ` · 새 보건소 ${m.newCenters}` : ''}</div>` +
+        `<button class="btn b" data-act="load" data-i="${i}">불러오기</button> <button class="btn b" data-act="del" data-i="${i}">삭제</button></div>`; }).join('');
+  renderSaveBar();
+}
+$('#histList').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-act]'); if (!b) return; const x = saves[+b.dataset.i]; if (!x) return;
+  if (b.dataset.act === 'load') return restore(x.snap);
+  if (!confirm(`'${x.snap.name || fmtTime(x.snap.savedAt)}' 저장본을 삭제할까요? (되돌릴 수 없습니다)`)) return;
+  try { await dir.removeEntry(x.file); await listSaves(); renderHistory(); } catch (err) { hmsg('삭제하지 못했습니다: ' + err.message, true); }
+});
+$('#dirPick').onclick = pickDir; $('#dirReconnect').onclick = reconnect;
+$('#saveBtn').onclick = quickSave; $('#saveNow').onclick = quickSave;
+$('#histFile').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const snap = Core.parseSnapshot(await f.text()); if (!snap) return hmsg('이 프로그램의 저장 파일이 아닙니다.', true);
+  restore(snap);
+};
+$('#resetAll').onclick = async () => {
+  if (!confirm('값·범례·배정 편집을 모두 지우고 처음 상태로 돌릴까요?')) return;
+  if (!(await backupFirst('초기화'))) return;
+  applyState({}); meta = { hash: '', at: '' }; renderSaveBar(); hmsg('처음 상태로 돌렸습니다.' + (dirState === 'ready' ? ' 이전 작업은 이력에 자동백업으로 남아 있습니다.' : ''));
+};
+window.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); quickSave(); } });
+initDir();
 fit(); setUnit(S.unit === 'bjd' ? 'bjd' : 'dong');
-window.__hm = { S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get cmap() { return cmap; }, setUnit };   // 점검용
+window.__hm = { useDir, saveSnapshot, applyState, get saves() { return saves; }, get meta() { return meta; }, AUTO_MS, S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get cmap() { return cmap; }, setUnit };   // 점검용
 })();

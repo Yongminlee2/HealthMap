@@ -4,3 +4,4 @@ data/*.geojson
 data/emd/
 data/*.zip
 data/tmp/
+보건소지도_*.json
