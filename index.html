@@ -379,6 +379,8 @@ function computeHC() {
 const defaultOf = i => L === A ? A.props[i].g : dongHC[A.idx.get(L.props[i].p)];     // 손대지 않았을 때의 보건소
 const usedCenters = () => { const used = new Set(hc); return [...cmap.values()].filter(c => used.has(c.id)).sort(byRegion); };
 const dongLabel = i => A.props[i].n.split(' ').slice(1).join(' ');
+// 시도까지 붙인 전체 주소("경기도 수원시 장안구 파장동"): 툴팁에서 같은 이름의 구·동을 구분하려고
+const dongAddr = i => { const t = A.props[i].n.split(' '); return [t[0], t[1].replace(/^(.+?시)(.+구)$/, '$1 $2'), ...t.slice(2)].join(' '); };
 const unitLabel = i => L === A ? dongLabel(i) : A.props[A.idx.get(L.props[i].p)].n.split(' ')[1] + ' ' + L.props[i].n;
 
 // ── 지도 그리기 ─────────────────────────────────────────
@@ -741,7 +743,7 @@ window.addEventListener('mousemove', e => {
   if (t.dataset && t.dataset.i !== undefined && t.parentNode === gDong) {
     const i = +t.dataset.i, c = cmap.get(hc[i]), v = S.values[c.id], k = v === undefined ? -1 : Core.classify(v, S.legend.breaks);
     tip.textContent = `${c.sido} ${c.name}\n값: ${v === undefined ? '없음' : fmt(v) + (S.legend.unit ? ' ' + S.legend.unit : '')}${k >= 0 ? `  (구간 ${k + 1})` : ''}\n` +
-      (L === A ? `행정동: ${unitLabel(i)}` : `법정동: ${unitLabel(i)}\n행정동: ${dongLabel(A.idx.get(L.props[i].p))}`);
+      (L === A ? `행정동: ${dongAddr(i)}` : `법정동: ${L.props[i].n}\n행정동: ${dongAddr(A.idx.get(L.props[i].p))}`);
     const r = stage.getBoundingClientRect(); tip.style.display = 'block';
     tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 6) + 'px'; tip.style.top = Math.min(e.clientY - r.top + 14, r.height - tip.offsetHeight - 6) + 'px';
   } else tip.style.display = 'none';

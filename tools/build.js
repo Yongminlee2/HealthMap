@@ -194,6 +194,12 @@ fs.writeFileSync(D('exceptions_report.txt'), report.join('\n'));
   add('보건소별', centerRows, [12, 18, 26, 10, 30, 90, 46]);
   add('법정동별', bjdRows, [12, 16, 18, 18, 18, 14, 12, 26]);
   const wsn = XLSX.utils.aoa_to_sheet(noteRows); wsn['!cols'] = [{ wch: 140 }]; XLSX.utils.book_append_sheet(wb, wsn, '확인필요');
+  {                                                                          // 배포용: 값만 채우면 되는 빈 양식(앱의 [양식 내려받기]와 같은 열)
+    const tr = [['시도', '보건소명', '보건소코드', '값'], ...[...centers].sort((a, b) => sidoRank(a.sido) - sidoRank(b.sido) || a.name.localeCompare(b.name, 'ko')).map(c => [c.sido, c.name, c.id, ''])];
+    const tw = XLSX.utils.aoa_to_sheet(tr); tw['!cols'] = [{ wch: 20 }, { wch: 26 }, { wch: 12 }, { wch: 14 }];
+    const twb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(twb, tw, '값'); fs.mkdirSync(D('dist'), { recursive: true });
+    XLSX.writeFile(twb, D('dist/보건소_값입력_양식.xlsx'));
+  }
   try { XLSX.writeFile(wb, path.join(root, '보건소_행정동_매핑표.xlsx')); }
   catch (e) {                                                                // 엑셀로 열어 둔 상태면 잠겨 있다 → 옆에 '_최신' 이름으로 저장
     if (e.code !== 'EBUSY' && e.code !== 'EPERM') throw e;

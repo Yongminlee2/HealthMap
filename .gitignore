@@ -5,3 +5,4 @@ data/emd/
 data/*.zip
 data/tmp/
 ~$*
+배포/
