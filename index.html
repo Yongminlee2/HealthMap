@@ -69,7 +69,7 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
     <section class="tab on" id="tab-data">
       <details class="guide" open><summary>처음이세요? 사용 순서</summary>
         <ol><li>아래 <b>양식</b>을 받아 '값' 열만 채웁니다.</li><li><b>값 올리기</b>로 파일을 올리면 지도가 칠해집니다.</li><li><b>범례</b> 탭에서 구간·색을 고릅니다.</li><li>지도 오른쪽 위 <b>PNG 저장</b>.</li></ol>
-        <p>엑셀 없이 하려면 <b>지도에서 보건소를 클릭</b>해 값을 바로 넣을 수도 있습니다. 고친 내용은 자동으로 저장됩니다.</p></details>
+        <p>엑셀 없이 하려면 <b>지도에서 보건소를 클릭</b>해 값을 바로 넣을 수도 있습니다. 저장하려면 위쪽 <b>[저장]</b> 버튼을 누르세요(자동으로 저장되지는 않습니다).</p></details>
       <h2>1. 양식 내려받기</h2>
       <div class="hint">전국 보건소 이름이 미리 채워진 양식입니다. '값' 열만 채워서 올려 주세요. (현재 지도의 보건소 구성·입력된 값이 그대로 반영됩니다)</div>
       <div class="row"><button class="btn" id="tplCsv">CSV 양식</button><button class="btn" id="tplXlsx">엑셀(xlsx) 양식</button></div>
@@ -127,12 +127,12 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
       <h2>2. 저장 이력</h2>
       <div id="histList"></div>
       <h2>처음 상태로 초기화</h2>
-      <div class="hint">값·범례·배정 편집을 모두 지우고 처음(기본 연결) 상태로 돌립니다. 저장 폴더가 있으면 지우기 전에 자동으로 한 벌 남겨 두어서 이력에서 되돌릴 수 있습니다.</div>
+      <div class="hint">값·범례·배정 편집을 모두 지우고 처음(기본 연결) 상태로 돌립니다. 저장하지 않은 작업이 있으면 지우기 전에 먼저 저장할지 물어봅니다.</div>
       <div class="row"><button class="btn" id="resetAll">처음 상태로 초기화</button></div>
       <div class="msg" id="histMsg"></div>
     </section>
 
-    <div class="foot">행정동 경계: 통계청 통계지리정보서비스(SGIS)가 공공누리 제1유형으로 개방한 행정동 경계를 가공한 vuski/admdongkor(CC BY 4.0), 2026-07-01 기준.<br>법정동 경계: 국토교통부 법정구역(읍면동) 2023-07-29 자료(GIS Developer 배포본), 소속 행정동은 2026 기준으로 연결.<br>보건소 목록: 2026년 보건소 260곳. 편집·값은 이 브라우저에 자동 저장됩니다.</div>
+    <div class="foot">행정동 경계: 통계청 통계지리정보서비스(SGIS)가 공공누리 제1유형으로 개방한 행정동 경계를 가공한 vuski/admdongkor(CC BY 4.0), 2026-07-01 기준.<br>법정동 경계: 국토교통부 법정구역(읍면동) 2023-07-29 자료(GIS Developer 배포본), 소속 행정동은 2026 기준으로 연결.<br>보건소 목록: 2026년 보건소 260곳. 작업 중인 내용은 이 브라우저에 임시로 남고, 위쪽 [저장]을 눌러야 이력에 저장됩니다.</div>
   </aside>
 
   <main id="stage">
@@ -364,7 +364,7 @@ const newLines = () => ({ border: '#2b3440', sido: '#0b1220', inner: '#ffffff' }
 const S = { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', legend: newLegend(), lines: newLines() };
 try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); Object.assign(S, d); S.legend = Object.assign(newLegend(), d.legend); S.lines = Object.assign(newLines(), d.lines); } catch (e) {}
 let sel = '', editMode = false, dongHC = [], hc = [], cmap = new Map();
-const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} renderSaveBar(); scheduleAuto(); };
+const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} renderSaveBar(); };
 
 function allCenters() {
   const m = new Map();
@@ -720,8 +720,8 @@ $('#cdel').onclick = () => {
   S.extra = S.extra.filter(e => e.id !== sel); delete S.values[sel]; sel = ''; refresh();
 };
 $('#mapExport').onclick = () => download(csvBlob(mappingRows()), '보건소_행정동_배정표.csv');
-$('#mapImport').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!confirm('지금까지의 배정 편집 내용을 이 파일로 덮어씁니다. 계속할까요?')) return; backupFirst('배정표 불러오기'); try { importMapping(await readTable(f)); } catch (err) { msg('#assignMsg', '파일을 읽지 못했습니다: ' + err.message, true); } };
-$('#resetEdit').onclick = async () => { if (!confirm('배정·이름 편집을 모두 지우고 기본으로 되돌릴까요?')) return; backupFirst('배정 초기화'); S.overrides = {}; S.overridesB = {}; S.extra = []; S.renamed = {}; sel = ''; refresh(); msg('#assignMsg', '초기화했습니다.'); };
+$('#mapImport').onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; if (!confirm('지금까지의 배정 편집 내용을 이 파일로 덮어씁니다. 계속할까요?')) return; if (!guardUnsaved('배정표 불러오기')) return; try { importMapping(await readTable(f)); } catch (err) { msg('#assignMsg', '파일을 읽지 못했습니다: ' + err.message, true); } };
+$('#resetEdit').onclick = async () => { if (!confirm('배정·이름 편집을 모두 지우고 기본으로 되돌릴까요?')) return; if (!guardUnsaved('배정 초기화')) return; S.overrides = {}; S.overridesB = {}; S.extra = []; S.renamed = {}; sel = ''; refresh(); msg('#assignMsg', '초기화했습니다.'); };
 
 // 확대·이동·클릭·툴팁
 let drag = null, moved = false;
@@ -802,9 +802,9 @@ $('#pngBtn').onclick = () => {
 };
 
 
-// ── 저장·이력: 브라우저(localStorage)에 쌓는다. 고치고 15초 조용하면 자동으로 한 벌, 직접 저장·자동백업도 같은 목록 ──
-const HIST_KEY = 'healthmap.hist', META_KEY = 'healthmap.save', AUTO_MS = 15000, AUTO_KEEP = 20, AUTO_NAME = '자동저장', p2 = n => String(n).padStart(2, '0');
-let meta = { hash: '', at: '' }, hist = [], autoTimer = 0;                         // hist: 최신순
+// ── 저장·이력: 사용자가 [저장]을 누를 때만 브라우저(localStorage)의 이력에 쌓는다(자동 저장 없음) ──
+const HIST_KEY = 'healthmap.hist', META_KEY = 'healthmap.save', p2 = n => String(n).padStart(2, '0');
+let meta = { hash: '', at: '' }, hist = [];                         // hist: 최신순
 try { Object.assign(meta, JSON.parse(localStorage.getItem(META_KEY) || '{}')); hist = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch (e) {}
 const stateHash = () => JSON.stringify(Core.pickState(S));
 const hasWork = () => { const m = Core.summarize(S); return !!(m.values || m.dongEdits || m.bjdEdits || m.newCenters || Object.keys(S.renamed).length || S.legend.title); };
@@ -813,31 +813,22 @@ const hmsg = (t, err) => msg('#histMsg', t, err);
 function renderSaveBar() {
   const el = $('#saveState'); if (!el) return;
   const clean = !hasWork(), same = stateHash() === meta.hash;
-  el.textContent = clean ? '편집한 내용이 없습니다' : same ? '✓ 저장됨 ' + meta.at : '● 곧 자동 저장됩니다';
+  el.textContent = clean ? '편집한 내용이 없습니다' : same ? '✓ 저장됨 ' + meta.at : '● 저장 안 됨';
   el.className = clean ? '' : same ? 'ok' : 'dirty';
 }
 function markSaved() { meta = { hash: stateHash(), at: fmtTime(new Date()) }; try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch (e) {} renderSaveBar(); }
-function scheduleAuto() {
-  clearTimeout(autoTimer);
-  if (!hasWork() || stateHash() === meta.hash) return;
-  autoTimer = setTimeout(() => { if (hasWork() && stateHash() !== meta.hash) addSnapshot(AUTO_NAME, true, true); }, AUTO_MS);
-}
-// 저장 공간이 모자라면 오래된 자동 저장본부터 버리며 다시 시도
-function writeHist() {
-  for (;;) {
-    try { localStorage.setItem(HIST_KEY, JSON.stringify(hist)); return true; }
-    catch (e) { const i = hist.map(x => x.auto).lastIndexOf(true); if (i < 0) return false; hist.splice(i, 1); }
-  }
-}
-function addSnapshot(name, auto, markDone) {
-  hist.unshift(Core.makeSnapshot(Core.pickState(S), name, auto, new Date()));
-  if (name === AUTO_NAME) { let n = 0; hist = hist.filter(x => !(x.auto && x.name === AUTO_NAME) || ++n <= AUTO_KEEP); }
+function writeHist() { try { localStorage.setItem(HIST_KEY, JSON.stringify(hist)); return true; } catch (e) { return false; } }
+function addSnapshot(name) {
+  hist.unshift(Core.makeSnapshot(Core.pickState(S), name, false, new Date()));
   if (!writeHist()) { hist.shift(); alert('브라우저 저장 공간이 부족합니다. 저장 이력에서 오래된 저장본을 삭제해 주세요.'); return false; }
-  if (!auto || markDone) markSaved();
-  renderHistory(); return true;
+  markSaved(); renderHistory(); return true;
 }
-// 지우거나 덮어쓰기 전에: 저장 안 된 작업이 있으면 자동백업을 한 벌 남긴다
-function backupFirst(why) { if (hasWork() && stateHash() !== meta.hash) addSnapshot(`자동백업(${why} 전)`, true); return true; }
+// 지우거나 덮어쓰기 전에: 저장 안 된 작업이 있으면 먼저 저장할지 묻는다. 계속해도 되면 true
+function guardUnsaved(why) {
+  if (!hasWork() || stateHash() === meta.hash) return true;
+  if (confirm(`저장하지 않은 작업이 있습니다. ${why} 전에 지금 상태를 저장할까요?\n[확인] 저장하고 계속   [취소] 저장하지 않고 계속할지 다시 묻기`)) return addSnapshot(`${why} 전 저장`);
+  return confirm('저장하지 않고 계속할까요? 지금 작업은 사라집니다.');
+}
 function applyState(st) {
   const d = Core.pickState(st);
   Object.assign(S, { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong' }, d);
@@ -846,17 +837,17 @@ function applyState(st) {
 }
 function restore(snap) {
   const label = snap.name || fmtTime(snap.savedAt);
-  if (!confirm(`'${label}' 저장본을 불러올까요?\n지금 작업이 저장돼 있지 않으면 자동백업으로 남깁니다.`)) return;
-  backupFirst('불러오기'); applyState(snap.state); markSaved(); hmsg(`'${label}'을(를) 불러왔습니다.`);
+  if (!confirm(`'${label}' 저장본을 불러올까요?`) || !guardUnsaved('불러오기')) return;
+  applyState(snap.state); markSaved(); hmsg(`'${label}'을(를) 불러왔습니다.`);
 }
 function quickSave() {
   const name = $('#saveName').value.trim();
-  if (addSnapshot(name, false)) { $('#saveName').value = ''; hmsg('저장했습니다. 아래 이력에 쌓였습니다.'); }
+  if (addSnapshot(name)) { $('#saveName').value = ''; hmsg('저장했습니다. 아래 이력에 쌓였습니다.'); }
 }
 function renderHistory() {
-  $('#histGuide').textContent = '고치면 15초쯤 뒤 자동으로 저장돼 아래 이력에 쌓입니다(자동 저장본은 최근 20개). 위쪽 [저장](Ctrl+S)으로 이름을 붙여 직접 저장할 수도 있고, 이력에서 언제든 그때 상태로 되돌릴 수 있습니다. 이력은 이 브라우저 안에 저장되므로 브라우저 데이터를 지우면 함께 사라집니다.';
+  $('#histGuide').textContent = '자동으로 저장되지 않습니다. 위쪽 [저장](Ctrl+S)을 누를 때마다 그때 상태가 아래 이력에 쌓이고, 이력에서 언제든 그때 상태로 되돌릴 수 있습니다. (작업 중인 내용은 새로고침해도 이 브라우저에 남아 있지만 이력에는 저장한 것만 쌓입니다.) 이력은 이 브라우저 안에 저장되므로 브라우저 데이터를 지우면 함께 사라집니다.';
   $('#histList').innerHTML = !hist.length ? '<div class="hint">아직 저장한 기록이 없습니다.</div>'
-    : hist.map((x, i) => { const m = x.summary || {}; return `<div class="hist"><div class="t">${esc(x.name || '이름 없음')}${x.auto ? '<span class="tag">자동</span>' : ''}</div>` +
+    : hist.map((x, i) => { const m = x.summary || {}; return `<div class="hist"><div class="t">${esc(x.name || '이름 없음')}</div>` +
         `<div class="s">${fmtTime(x.savedAt)} · 값 ${m.values || 0}개 · 배정 변경 ${(m.dongEdits || 0) + (m.bjdEdits || 0)}건${m.newCenters ? ` · 새 보건소 ${m.newCenters}` : ''}</div>` +
         `<button class="btn b" data-act="load" data-i="${i}">불러오기</button> <button class="btn b" data-act="del" data-i="${i}">삭제</button></div>`; }).join('');
   renderSaveBar();
@@ -870,12 +861,13 @@ $('#histList').addEventListener('click', e => {
 $('#saveBtn').onclick = quickSave; $('#saveNow').onclick = quickSave;
 $('#resetAll').onclick = () => {
   if (!confirm('값·범례·배정 편집을 모두 지우고 처음 상태로 돌릴까요?')) return;
-  backupFirst('초기화'); applyState({}); meta = { hash: '', at: '' }; renderSaveBar(); hmsg('처음 상태로 돌렸습니다. 이전 작업은 이력에 자동백업으로 남아 있습니다.');
+  if (!guardUnsaved('초기화')) return;
+  applyState({}); meta = { hash: '', at: '' }; renderSaveBar(); hmsg('처음 상태로 돌렸습니다.' + (hist.length ? ' 저장해 둔 이력은 그대로 있습니다.' : ''));
 };
 window.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); quickSave(); } });
-renderHistory(); scheduleAuto();
+renderHistory();
 fit(); setUnit(S.unit === 'bjd' ? 'bjd' : 'dong');
-window.__hm = { addSnapshot, applyState, get hist() { return hist; }, get meta() { return meta; }, AUTO_MS, S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get cmap() { return cmap; }, setUnit };   // 점검용
+window.__hm = { addSnapshot, applyState, get hist() { return hist; }, get meta() { return meta; }, S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get cmap() { return cmap; }, setUnit };   // 점검용
 })();
 
 </script>
