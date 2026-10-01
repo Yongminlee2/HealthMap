@@ -14,12 +14,16 @@ files = [  # (원본, 압축 안 이름)
 ]
 for src, _ in files:
     if not os.path.exists(src): sys.exit('없음: ' + src + '  (먼저 node build.js)')
+import shutil
+plain = os.path.join(out_dir, folder)                      # 압축을 풀지 않고 바로 쓸 수 있는 같은 내용의 폴더
+shutil.rmtree(plain, ignore_errors=True); os.makedirs(plain)
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
     for src, name in files:
         data = open(src, 'rb').read()
         if name.endswith('.txt'):   # 메모장에서 한글이 깨지지 않게 UTF-8(BOM) + 윈도우 줄바꿈
             data = '﻿'.encode('utf-8') + data.decode('utf-8').replace('\r\n', '\n').replace('\n', '\r\n').encode('utf-8')
         z.writestr(f'{folder}/{name}', data)
+        open(os.path.join(plain, name), 'wb').write(data)
 with zipfile.ZipFile(out) as z:
     assert z.testzip() is None
     print(out)
