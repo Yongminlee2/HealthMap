@@ -53,23 +53,16 @@ assert.deepStrictEqual(r.values, { 26110: 5, 11140: 1200, 11110: 7, 29140: 3 });
 assert.strictEqual(r.unmatched.length, 3);
 assert.deepStrictEqual(r.unmatched.map(x => x.name), ['중구', '없는곳', '수원시장안구']);
 
-// 저장본: 파일 이름(윈도우 금지문자 제거), 만들기/읽기, 요약, 상태 고르기
+// 저장본: 요약, 상태 고르기(복사본), 만들기
 const d0 = new Date(2026, 9, 2, 14, 3, 1);
-assert.strictEqual(Core.stamp(d0), '20261002-140301');
-assert.strictEqual(Core.snapshotFileName(d0, ''), '보건소지도_20261002-140301.json');
-assert.strictEqual(Core.snapshotFileName(d0, '1차: 검토/본?'), '보건소지도_20261002-140301_1차 검토 본.json');
-assert.strictEqual(Core.snapshotFileName(d0, 'a'.repeat(100)).length, '보건소지도_20261002-140301_.json'.length + 40);
 const st = { values: { a: 1, b: 2 }, overrides: { x: 'y' }, overridesB: {}, extra: [{ id: 'X01' }], renamed: {}, showDong: true, unit: 'dong', legend: { title: 't' }, junk: 1 };
 assert.deepStrictEqual(Core.summarize(st), { values: 2, dongEdits: 1, bjdEdits: 0, newCenters: 1 });
 const picked = Core.pickState(st);
 assert.strictEqual(picked.junk, undefined);
-assert.notStrictEqual(picked.values, st.values);                    // 복사본(원본과 연결 끊김)
+assert.notStrictEqual(picked.values, st.values);
 assert.deepStrictEqual(picked.values, st.values);
-const snap = Core.makeSnapshot(Core.pickState(st), '이름', false, d0);
-assert.strictEqual(snap.app, 'healthmap'); assert.strictEqual(snap.name, '이름'); assert.strictEqual(snap.summary.values, 2);
-assert.deepStrictEqual(Core.parseSnapshot(JSON.stringify(snap)).state.values, { a: 1, b: 2 });
-assert.strictEqual(Core.parseSnapshot('not json'), null);
-assert.strictEqual(Core.parseSnapshot('{"app":"other","format":1,"state":{}}'), null);
-assert.strictEqual(Core.parseSnapshot('{"app":"healthmap","format":9,"state":{}}'), null);
+const snap = Core.makeSnapshot(picked, '이름', true, d0);
+assert.deepStrictEqual([snap.id, snap.name, snap.auto, snap.summary.values], [d0.getTime(), '이름', true, 2]);
+assert.strictEqual(Core.makeSnapshot(picked, '', false, d0).name, '');
 
 console.log('core tests ok');

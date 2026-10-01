@@ -105,17 +105,10 @@
   };
 
   // ── 저장본(작업 상태 스냅샷) ──
-  const pad = n => String(n).padStart(2, '0');
-  Core.stamp = d => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  Core.snapshotFileName = (d, name) => {
-    const n = String(name || '').replace(/[\\/:*?"<>|\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/[. ]+$/, '').slice(0, 40);
-    return '보건소지도_' + Core.stamp(d) + (n ? '_' + n : '') + '.json';
-  };
   const STATE_KEYS = ['values', 'overrides', 'overridesB', 'extra', 'renamed', 'showDong', 'showSido', 'unit', 'legend'];
-  Core.pickState = o => { const out = {}; for (const k of STATE_KEYS) if (o && o[k] !== undefined) out[k] = JSON.parse(JSON.stringify(o[k])); return out; };
+  Core.pickState = o => { const out = {}; for (const k of STATE_KEYS) if (o && o[k] !== undefined) out[k] = JSON.parse(JSON.stringify(o[k])); return out; };   // 복사본(원본과 연결 끊김)
   Core.summarize = st => ({ values: Object.keys(st.values || {}).length, dongEdits: Object.keys(st.overrides || {}).length, bjdEdits: Object.keys(st.overridesB || {}).length, newCenters: (st.extra || []).length });
-  Core.makeSnapshot = (state, name, auto, d) => ({ app: 'healthmap', format: 1, savedAt: d.toISOString(), name: name || '', auto: !!auto, summary: Core.summarize(state), state });
-  Core.parseSnapshot = text => { try { const o = JSON.parse(text); if (o && o.app === 'healthmap' && o.format === 1 && o.state && typeof o.state === 'object') return o; } catch (e) {} return null; };
+  Core.makeSnapshot = (state, name, auto, d) => ({ id: d.getTime(), savedAt: d.toISOString(), name: name || '', auto: !!auto, summary: Core.summarize(state), state });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = Core; else root.Core = Core;
 })(typeof self !== 'undefined' ? self : this);
