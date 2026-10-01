@@ -44,6 +44,10 @@ details div { max-height:140px; overflow:auto; font-size:12px; background:#fff; 
 #map, #overlay { position:absolute; inset:0; width:100%; height:100%; }
 #map { cursor:grab; } #map.edit { cursor:crosshair; } #overlay { pointer-events:none; }
 #tools { position:absolute; top:10px; right:12px; display:flex; gap:6px; align-items:center; background:rgba(255,255,255,.92); padding:6px 8px; border:1px solid var(--line); border-radius:8px; }
+#valpop { position:absolute; z-index:7; width:250px; padding:10px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#valpop[hidden] { display:none; } #vpName { font-weight:700; margin-bottom:4px; } #vpInput { width:90px; flex:1; }
+details.guide { margin:0 0 6px; padding:6px 10px; background:#fff; border:1px solid var(--line); border-radius:8px; } details.guide summary { color:var(--fg); font-weight:700; }
+details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { margin:4px 0; color:var(--mute); font-size:12px; }
 #tip { position:absolute; display:none; pointer-events:none; background:rgba(20,28,36,.92); color:#fff; padding:6px 9px; border-radius:6px; font-size:12px; white-space:pre; z-index:5; }
 </style>
 </head>
@@ -60,6 +64,9 @@ details div { max-height:140px; overflow:auto; font-size:12px; background:#fff; 
     </nav>
 
     <section class="tab on" id="tab-data">
+      <details class="guide" open><summary>처음이세요? 사용 순서</summary>
+        <ol><li>아래 <b>양식</b>을 받아 '값' 열만 채웁니다.</li><li><b>값 올리기</b>로 파일을 올리면 지도가 칠해집니다.</li><li><b>범례</b> 탭에서 구간·색을 고릅니다.</li><li>지도 오른쪽 위 <b>PNG 저장</b>.</li></ol>
+        <p>엑셀 없이 하려면 <b>지도에서 보건소를 클릭</b>해 값을 바로 넣을 수도 있습니다. 고친 내용은 자동으로 저장됩니다.</p></details>
       <h2>1. 양식 내려받기</h2>
       <div class="hint">전국 보건소 이름이 미리 채워진 양식입니다. '값' 열만 채워서 올려 주세요. (현재 지도의 보건소 구성·입력된 값이 그대로 반영됩니다)</div>
       <div class="row"><button class="btn" id="tplCsv">CSV 양식</button><button class="btn" id="tplXlsx">엑셀(xlsx) 양식</button></div>
@@ -93,6 +100,7 @@ details div { max-height:140px; overflow:auto; font-size:12px; background:#fff; 
       <div class="hint" id="unitHint"></div>
       <label class="f">보건소 찾기</label><input type="text" id="csrch" placeholder="이름·시도 검색">
       <select id="csel" size="8"></select>
+      <div class="row"><button class="btn" id="zoomSel">선택한 보건소를 지도에서 보기</button></div>
       <div class="msg" id="cinfo"></div>
       <details><summary>소속 행정동 목록</summary><div id="clist"></div></details>
       <h2>이름 바꾸기</h2>
@@ -102,7 +110,7 @@ details div { max-height:140px; overflow:auto; font-size:12px; background:#fff; 
       <div class="row"><button class="btn" id="cdel">선택한 새 보건소 삭제</button></div>
       <h2>배정표(CSV)</h2>
       <div class="hint">행정동 하나당 한 줄(법정동 보정은 법정동코드가 적힌 줄)로 현재 배정을 저장·복원합니다. 불러오면 지금 편집 내용을 덮어씁니다.</div>
-      <div class="row"><button class="btn" id="mapExport">배정표 내보내기</button><label class="btn">배정표 불러오기<input type="file" id="mapImport" accept=".csv,.txt" hidden></label></div>
+      <div class="row"><button class="btn" id="mapExport">배정표 내보내기</button><label class="btn">배정표 불러오기<input type="file" id="mapImport" accept=".csv,.txt,.xlsx" hidden></label></div>
       <div class="row"><button class="btn" id="resetEdit">편집 모두 초기화</button></div>
       <div class="msg" id="assignMsg"></div>
     </section>
@@ -133,6 +141,7 @@ details div { max-height:140px; overflow:auto; font-size:12px; background:#fff; 
       <button class="b" id="pngBtn">PNG 저장</button>
       <button class="b" id="svgBtn">SVG 저장</button>
     </div>
+    <div id="valpop" hidden><div id="vpName"></div><div class="row"><input type="number" step="any" id="vpInput" placeholder="값"><button class="btn pri" id="vpOk">확인</button><button class="btn" id="vpClear">지우기</button></div></div>
     <div id="tip"></div>
   </main>
 </div>
@@ -430,7 +439,8 @@ function sidoPath() {
   }
   return L.sidoD;
 }
-function drawSel() { gSel.innerHTML = (editMode && sel) ? hc.map((c, i) => c === sel ? `<path d="${L.d[i]}"/>` : '').join('') : ''; }
+let flash = false, flashTimer = 0;
+function drawSel() { gSel.innerHTML = ((editMode || flash) && sel) ? hc.map((c, i) => c === sel ? `<path d="${L.d[i]}"/>` : '').join('') : ''; }
 function setUnit(kind) {
   if (kind === 'bjd' && !B) B = buildLayer(TOPO_B);
   L = kind === 'bjd' ? B : A; S.unit = kind; $('#unitSel').value = kind;
@@ -524,7 +534,7 @@ function applyValues(rows) {
   const res = Core.matchRows(data, usedCenters());
   S.values = res.values; refreshColors();
   const v = Object.values(res.values), nd = v.length;
-  msg('#dataMsg', nd ? `${nd}개 보건소에 값을 적용했습니다. (최소 ${fmt(Math.min(...v))} / 최대 ${fmt(Math.max(...v))})\n매칭 실패 ${res.unmatched.length}행` : '적용된 값이 없습니다. 열 제목과 보건소 이름을 확인해 주세요.', !nd);
+  msg('#dataMsg', nd ? `${nd}개 보건소에 값을 적용했습니다. (최소 ${fmt(Math.min(...v))} / 최대 ${fmt(Math.max(...v))})\n매칭 실패 ${res.unmatched.length}행\n→ [범례] 탭에서 구간과 색을 바꿀 수 있습니다.` : '적용된 값이 없습니다. 열 제목과 보건소 이름을 확인해 주세요.', !nd);
   $('#unmatchedBox').hidden = !res.unmatched.length;
   $('#unmatchedSum').textContent = `매칭 실패 ${res.unmatched.length}행 보기`;
   $('#unmatched').innerHTML = res.unmatched.slice(0, 200).map(r => esc([r.sido, r.name, r.code, r.value].filter(x => x !== '' && x !== undefined).join(' / '))).join('<br>');
@@ -630,6 +640,17 @@ $('#showDong').onchange = e => { S.showDong = e.target.checked; refresh(); };
 $('#unitSel').onchange = e => setUnit(e.target.value);
 $('#fitBtn').onclick = fit;
 $('#edit').onchange = e => { editMode = e.target.checked; map.classList.toggle('edit', editMode); drawSel(); };
+function zoomToSel() {
+  if (!sel) return;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  hc.forEach((c, i) => { if (c !== sel) return; for (const m of L.d[i].matchAll(/(-?[\d.]+) (-?[\d.]+)/g)) { const x = +m[1], y = +m[2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } });
+  if (x0 > x1) return;
+  const cw = stage.clientWidth, ch = stage.clientHeight; if (!cw || !ch) return;
+  const bw = Math.max(x1 - x0, 20) * 1.5, bh = Math.max(y1 - y0, 20) * 1.5, sc = Math.min(cw / bw, ch / bh, cw / (BW / 300));
+  vb.w = cw / sc; vb.h = ch / sc; vb.x = (x0 + x1) / 2 - vb.w / 2; vb.y = (y0 + y1) / 2 - vb.h / 2; strokesDirty = true; applyVB();
+  flash = true; drawSel(); clearTimeout(flashTimer); flashTimer = setTimeout(() => { flash = false; drawSel(); }, 3000);
+}
+$('#zoomSel').onclick = zoomToSel; $('#csel').ondblclick = zoomToSel;
 $('#csrch').oninput = renderAssignPanel;
 $('#csel').onchange = e => { sel = e.target.value; renderAssignPanel(); drawSel(); };
 $('#crename').onclick = () => {
@@ -656,7 +677,7 @@ $('#resetEdit').onclick = async () => { if (!confirm('배정·이름 편집을 �
 let drag = null, moved = false;
 map.addEventListener('wheel', e => {
   e.preventDefault();
-  const f = e.deltaY < 0 ? 1 / 1.25 : 1.25, r = map.getBoundingClientRect();
+  const dy = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY), f = Math.exp(Math.max(-120, Math.min(120, dy)) * 0.002), r = map.getBoundingClientRect();
   if ((f < 1 && vb.w < BW / 300) || (f > 1 && vb.w > BW * 3)) return;
   const mx = vb.x + (e.clientX - r.left) / r.width * vb.w, my = vb.y + (e.clientY - r.top) / r.height * vb.h;
   vb.x = mx - (mx - vb.x) * f; vb.y = my - (my - vb.y) * f; vb.w *= f; vb.h *= f; moveVB(true);
@@ -678,7 +699,30 @@ window.addEventListener('mousemove', e => {
   } else tip.style.display = 'none';
 });
 window.addEventListener('mouseup', () => { drag = null; setTimeout(() => moved = false, 0); });
-map.addEventListener('click', e => { if (moved || !editMode || e.target.dataset.i === undefined) return; assign(+e.target.dataset.i); });
+map.addEventListener('click', e => {
+  if (moved) return;
+  if (e.target.dataset.i === undefined) return closePop();
+  if (editMode) assign(+e.target.dataset.i); else openPop(+e.target.dataset.i, e);
+});
+// 지도에서 보건소를 클릭해 값을 바로 입력
+const pop = $('#valpop'); let popCenter = '';
+function closePop() { pop.hidden = true; popCenter = ''; }
+function openPop(i, e) {
+  const c = cmap.get(hc[i]); if (!c) return; popCenter = c.id;
+  $('#vpName').textContent = `${c.sido} ${c.name}`; $('#vpInput').value = S.values[c.id] ?? '';
+  const r = stage.getBoundingClientRect(); pop.hidden = false;
+  pop.style.left = Math.max(6, Math.min(e.clientX - r.left + 10, r.width - 262)) + 'px'; pop.style.top = Math.max(6, Math.min(e.clientY - r.top + 10, r.height - 100)) + 'px';
+  $('#vpInput').focus(); $('#vpInput').select();
+}
+function commitPop(clear) {
+  if (!popCenter) return;
+  const v = parseFloat($('#vpInput').value);
+  if (clear || !Number.isFinite(v)) delete S.values[popCenter]; else S.values[popCenter] = v;
+  closePop(); refreshColors();
+}
+$('#vpOk').onclick = () => commitPop(false); $('#vpClear').onclick = () => commitPop(true);
+$('#vpInput').addEventListener('keydown', e => { if (e.key === 'Enter') commitPop(false); else if (e.key === 'Escape') closePop(); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape') closePop(); });
 map.addEventListener('mouseleave', () => tip.style.display = 'none');
 window.addEventListener('resize', () => {
   const cw = stage.clientWidth, ch = stage.clientHeight;

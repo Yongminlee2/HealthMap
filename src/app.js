@@ -156,7 +156,8 @@ function sidoPath() {
   }
   return L.sidoD;
 }
-function drawSel() { gSel.innerHTML = (editMode && sel) ? hc.map((c, i) => c === sel ? `<path d="${L.d[i]}"/>` : '').join('') : ''; }
+let flash = false, flashTimer = 0;
+function drawSel() { gSel.innerHTML = ((editMode || flash) && sel) ? hc.map((c, i) => c === sel ? `<path d="${L.d[i]}"/>` : '').join('') : ''; }
 function setUnit(kind) {
   if (kind === 'bjd' && !B) B = buildLayer(TOPO_B);
   L = kind === 'bjd' ? B : A; S.unit = kind; $('#unitSel').value = kind;
@@ -250,7 +251,7 @@ function applyValues(rows) {
   const res = Core.matchRows(data, usedCenters());
   S.values = res.values; refreshColors();
   const v = Object.values(res.values), nd = v.length;
-  msg('#dataMsg', nd ? `${nd}개 보건소에 값을 적용했습니다. (최소 ${fmt(Math.min(...v))} / 최대 ${fmt(Math.max(...v))})\n매칭 실패 ${res.unmatched.length}행` : '적용된 값이 없습니다. 열 제목과 보건소 이름을 확인해 주세요.', !nd);
+  msg('#dataMsg', nd ? `${nd}개 보건소에 값을 적용했습니다. (최소 ${fmt(Math.min(...v))} / 최대 ${fmt(Math.max(...v))})\n매칭 실패 ${res.unmatched.length}행\n→ [범례] 탭에서 구간과 색을 바꿀 수 있습니다.` : '적용된 값이 없습니다. 열 제목과 보건소 이름을 확인해 주세요.', !nd);
   $('#unmatchedBox').hidden = !res.unmatched.length;
   $('#unmatchedSum').textContent = `매칭 실패 ${res.unmatched.length}행 보기`;
   $('#unmatched').innerHTML = res.unmatched.slice(0, 200).map(r => esc([r.sido, r.name, r.code, r.value].filter(x => x !== '' && x !== undefined).join(' / '))).join('<br>');
@@ -356,6 +357,17 @@ $('#showDong').onchange = e => { S.showDong = e.target.checked; refresh(); };
 $('#unitSel').onchange = e => setUnit(e.target.value);
 $('#fitBtn').onclick = fit;
 $('#edit').onchange = e => { editMode = e.target.checked; map.classList.toggle('edit', editMode); drawSel(); };
+function zoomToSel() {
+  if (!sel) return;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  hc.forEach((c, i) => { if (c !== sel) return; for (const m of L.d[i].matchAll(/(-?[\d.]+) (-?[\d.]+)/g)) { const x = +m[1], y = +m[2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } });
+  if (x0 > x1) return;
+  const cw = stage.clientWidth, ch = stage.clientHeight; if (!cw || !ch) return;
+  const bw = Math.max(x1 - x0, 20) * 1.5, bh = Math.max(y1 - y0, 20) * 1.5, sc = Math.min(cw / bw, ch / bh, cw / (BW / 300));
+  vb.w = cw / sc; vb.h = ch / sc; vb.x = (x0 + x1) / 2 - vb.w / 2; vb.y = (y0 + y1) / 2 - vb.h / 2; strokesDirty = true; applyVB();
+  flash = true; drawSel(); clearTimeout(flashTimer); flashTimer = setTimeout(() => { flash = false; drawSel(); }, 3000);
+}
+$('#zoomSel').onclick = zoomToSel; $('#csel').ondblclick = zoomToSel;
 $('#csrch').oninput = renderAssignPanel;
 $('#csel').onchange = e => { sel = e.target.value; renderAssignPanel(); drawSel(); };
 $('#crename').onclick = () => {
@@ -382,7 +394,7 @@ $('#resetEdit').onclick = async () => { if (!confirm('배정·이름 편집을 �
 let drag = null, moved = false;
 map.addEventListener('wheel', e => {
   e.preventDefault();
-  const f = e.deltaY < 0 ? 1 / 1.25 : 1.25, r = map.getBoundingClientRect();
+  const dy = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY), f = Math.exp(Math.max(-120, Math.min(120, dy)) * 0.002), r = map.getBoundingClientRect();
   if ((f < 1 && vb.w < BW / 300) || (f > 1 && vb.w > BW * 3)) return;
   const mx = vb.x + (e.clientX - r.left) / r.width * vb.w, my = vb.y + (e.clientY - r.top) / r.height * vb.h;
   vb.x = mx - (mx - vb.x) * f; vb.y = my - (my - vb.y) * f; vb.w *= f; vb.h *= f; moveVB(true);
@@ -404,7 +416,30 @@ window.addEventListener('mousemove', e => {
   } else tip.style.display = 'none';
 });
 window.addEventListener('mouseup', () => { drag = null; setTimeout(() => moved = false, 0); });
-map.addEventListener('click', e => { if (moved || !editMode || e.target.dataset.i === undefined) return; assign(+e.target.dataset.i); });
+map.addEventListener('click', e => {
+  if (moved) return;
+  if (e.target.dataset.i === undefined) return closePop();
+  if (editMode) assign(+e.target.dataset.i); else openPop(+e.target.dataset.i, e);
+});
+// 지도에서 보건소를 클릭해 값을 바로 입력
+const pop = $('#valpop'); let popCenter = '';
+function closePop() { pop.hidden = true; popCenter = ''; }
+function openPop(i, e) {
+  const c = cmap.get(hc[i]); if (!c) return; popCenter = c.id;
+  $('#vpName').textContent = `${c.sido} ${c.name}`; $('#vpInput').value = S.values[c.id] ?? '';
+  const r = stage.getBoundingClientRect(); pop.hidden = false;
+  pop.style.left = Math.max(6, Math.min(e.clientX - r.left + 10, r.width - 262)) + 'px'; pop.style.top = Math.max(6, Math.min(e.clientY - r.top + 10, r.height - 100)) + 'px';
+  $('#vpInput').focus(); $('#vpInput').select();
+}
+function commitPop(clear) {
+  if (!popCenter) return;
+  const v = parseFloat($('#vpInput').value);
+  if (clear || !Number.isFinite(v)) delete S.values[popCenter]; else S.values[popCenter] = v;
+  closePop(); refreshColors();
+}
+$('#vpOk').onclick = () => commitPop(false); $('#vpClear').onclick = () => commitPop(true);
+$('#vpInput').addEventListener('keydown', e => { if (e.key === 'Enter') commitPop(false); else if (e.key === 'Escape') closePop(); });
+window.addEventListener('keydown', e => { if (e.key === 'Escape') closePop(); });
 map.addEventListener('mouseleave', () => tip.style.display = 'none');
 window.addEventListener('resize', () => {
   const cw = stage.clientWidth, ch = stage.clientHeight;

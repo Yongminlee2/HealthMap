@@ -119,14 +119,55 @@ const report = ['# 보건소 ↔ 행정동 기본 연결에서 사람이 확인�
   '보건소 260곳은 data/centers_2026.tsv(사용자 제공)가 기준이고, 아래는 시군구 단위로 딱 떨어지지 않아 규칙으로 정한 곳입니다.', '',
   '## 한 시를 둘 이상의 보건소가 나누는 곳 (읍면동 단위 지정)'];
 for (const sp of Object.values(SPLIT)) for (const id of [String(sp.rest), ...Object.keys(sp.by)]) report.push(`- ${nameOf.get(id).sido} ${nameOf.get(id).name} (${id}): ${dongsOf(id).join(', ')}`);
-report.push('', '## 추정이 섞인 곳', '- 평택시: 송탄보건소 관할은 웹 자료가 엇갈려 위 읍면동으로 정했습니다. 공식 관할표로 확인하세요.',
-  '- 화성시 효행구(봉담읍·매송면·비봉면·정남면·기배동): 2026-01 보도로는 효행구보건소가 따로 생기지만 사용자 목록에 없어 만세구보건소(31700210)에 합쳤습니다.',
+report.push('', '## 관할을 추정으로 정한 곳 (보건소 목록은 사용자 제공 260곳이 기준)', '- 평택시: 송탄보건소 관할은 웹 자료가 엇갈려 위 읍면동으로 정했습니다. 공식 관할표로 확인하세요.',
+  '- 화성시 효행구(봉담읍·매송면·비봉면·정남면·기배동): 제공된 목록에 효행구보건소가 없어 만세구보건소(31700210)에 포함했습니다.',
   '- 제주시 추자면은 제주보건소에 넣었습니다.',
   '- 인천 서구보건소(31700374)는 2026-07 분할 후 서해구를 맡는 것으로 보았습니다.',
   '', '## 시군구 여러 곳을 한 보건소가 맡는 곳');
 for (const [id, c] of nameOf) { const s = [...sggCenter].filter(([, v]) => v === id); if (s.length > 1) report.push(`- ${c.sido} ${c.name} (${id}): ${s.map(([k]) => sggs.get(k).nm).join(' + ')}`); }
 report.push('', '## 경계 자료 기준일', '- 행정동: 2026-07-01 (SGIS 원자료)', '- 법정동: 2023-07-29 (국토교통부 법정구역 shp). 소속 행정동은 2026 기준으로 연결했습니다. 최신 법정동 shp 는 V-World 로그인 후 받아야 합니다.', '');
 fs.writeFileSync(D('exceptions_report.txt'), report.join('\n'));
+
+// ── 4-2) 엑셀로 확인하는 매핑표 ────────────────────────────────────────────
+// 첫 시트('행정동별')는 앱의 [배정표 불러오기]가 그대로 읽는 형식이다(엑셀에서 보건소코드를 고쳐 다시 불러올 수 있음).
+{
+  const XLSX = require('xlsx');
+  const SIDO_ORDER = ['서울특별시', '부산광역시', '대구광역시', '인천광역시', '전남광주통합특별시', '대전광역시', '울산광역시', '세종특별자치시', '경기도', '강원특별자치도', '충청북도', '충청남도', '전북특별자치도', '경상북도', '경상남도', '제주특별자치도'];
+  const sidoRank = s => { const i = SIDO_ORDER.indexOf(s); return i < 0 ? 99 : i; };
+  const spacedSgg = nm => nm.replace(/^(.+?시)(.+구)$/, '$1 $2');
+  const NOTE_SONG = new Set(SPLIT.평택시.by[31700586]);
+  const noteOf = f => {
+    const p = f.properties, t = tail(p.adm_nm);
+    if (p.sggnm === '평택시' && (NOTE_SONG.has(t) || dongCenter.get(p.adm_cd2) === '31700357')) return '관할 추정(평택 송탄/평택 구분, 공식 관할표 확인 필요)';
+    if (p.sggnm === '화성시효행구') return '목록에 효행구보건소가 없어 만세구보건소에 포함';
+    if (p.sggnm === '제주시' && t === '추자면') return '관할 추정(제주보건소로 분류)';
+    if (p.sggnm === '서해구') return '인천 서구 분할 후 서구보건소가 서해구를 맡는 것으로 분류';
+    return '';
+  };
+  const dongRows = [['행정동코드', '행정동명', '보건소코드', '보건소명', '시도', '시군구', '비고']];
+  for (const f of gj.features) { const p = f.properties, id = dongCenter.get(p.adm_cd2), c = nameOf.get(id); dongRows.push([p.adm_cd2, p.adm_nm.split(' ').slice(1).join(' '), id, c.name, c.sido, spacedSgg(p.sggnm), noteOf(f)]); }
+  dongRows.splice(1, dongRows.length, ...dongRows.slice(1).sort((a, b) => a[4] === b[4] ? (a[3] === b[3] ? a[0].localeCompare(b[0]) : a[3].localeCompare(b[3], 'ko')) : sidoRank(a[4]) - sidoRank(b[4])));
+  const centerRows = [['보건소코드', '시도', '보건소명', '행정동 수', '소속 시군구', '소속 행정동', '비고']];
+  for (const c of centers) {
+    const fs_ = gj.features.filter(f => dongCenter.get(f.properties.adm_cd2) === c.id);
+    centerRows.push([c.id, c.sido, c.name, fs_.length, [...new Set(fs_.map(f => spacedSgg(f.properties.sggnm)))].join(', '), fs_.map(f => tail(f.properties.adm_nm)).join(', '), [...new Set(fs_.map(noteOf).filter(Boolean))].join(' / ')]);
+  }
+  centerRows.splice(1, centerRows.length, ...centerRows.slice(1).sort((a, b) => sidoRank(a[1]) - sidoRank(b[1]) || a[2].localeCompare(b[2], 'ko')));
+  const dongByCode = new Map(gj.features.map(f => [f.properties.adm_cd2, f.properties]));
+  const bjdRows = [['법정동코드', '법정동명', '시도', '시군구', '소속 행정동', '소속 행정동코드', '보건소코드', '보건소명']];
+  for (const g of emdGeoms) { const p = g.properties, d = dongByCode.get(p.p), id = dongCenter.get(p.p), c = nameOf.get(id); bjdRows.push([p.c, p.n, d.sidonm, spacedSgg(d.sggnm), tail(d.adm_nm), p.p, id, c.name]); }
+  bjdRows.splice(1, bjdRows.length, ...bjdRows.slice(1).sort((a, b) => sidoRank(a[2]) - sidoRank(b[2]) || a[3].localeCompare(b[3], 'ko') || a[0].localeCompare(b[0])));
+  const noteRows = [['확인이 필요한 곳 / 이 파일 보는 법'], [''], ['● 보건소 목록은 사용자가 제공한 2026년 260곳이 기준입니다.'], ['● 첫 시트(행정동별)는 지도 프로그램의 [배정표 불러오기]로 다시 읽을 수 있습니다. 보건소코드·보건소명 열을 고쳐서 불러오면 지도에 반영됩니다.'],
+    ['● 법정동별 시트의 소속 행정동은 법정동 경계(2023-07)와 행정동 경계(2026-07)가 가장 많이 겹치는 곳으로 연결한 것입니다.'], [''], ...report.filter(l => /^- /.test(l) && !/^- 행정동:|^- 법정동:/.test(l)).map(l => ['● ' + l.slice(2)])];
+  const wb = XLSX.utils.book_new();
+  const add = (name, rows, widths) => { const ws = XLSX.utils.aoa_to_sheet(rows); ws['!cols'] = widths.map(wch => ({ wch })); if (rows.length > 1 && rows[0].length > 1) ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: rows[0].length - 1 } }) }; XLSX.utils.book_append_sheet(wb, ws, name); };
+  add('행정동별', dongRows, [14, 28, 12, 26, 18, 18, 46]);
+  add('보건소별', centerRows, [12, 18, 26, 10, 30, 90, 46]);
+  add('법정동별', bjdRows, [12, 16, 18, 18, 18, 14, 12, 26]);
+  const wsn = XLSX.utils.aoa_to_sheet(noteRows); wsn['!cols'] = [{ wch: 140 }]; XLSX.utils.book_append_sheet(wb, wsn, '확인필요');
+  XLSX.writeFile(wb, path.join(root, '보건소_행정동_매핑표.xlsx'));
+  console.log(`매핑표 엑셀: 행정동 ${dongRows.length - 1}행, 보건소 ${centerRows.length - 1}행, 법정동 ${bjdRows.length - 1}행`);
+}
 
 // ── 5) 조립 ─────────────────────────────────────────────────────────────
 const tpl = path.join(root, 'src', 'app.html');
