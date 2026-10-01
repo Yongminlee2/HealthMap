@@ -42,7 +42,7 @@ details div { max-height:140px; overflow:auto; font-size:12px; background:#fff; 
 .foot { margin-top:18px; padding-top:10px; border-top:1px solid var(--line); color:var(--mute); font-size:11px; }
 #stage { flex:1; position:relative; overflow:hidden; background:#fff; }
 #map, #overlay { position:absolute; inset:0; width:100%; height:100%; }
-#map { cursor:grab; } #map.edit { cursor:crosshair; } #overlay { pointer-events:none; }
+#map { cursor:grab; transform-origin:0 0; will-change:transform; } #map.edit { cursor:crosshair; } #overlay { pointer-events:none; }
 #tools { position:absolute; top:10px; right:12px; display:flex; gap:6px; align-items:center; background:rgba(255,255,255,.92); padding:6px 8px; border:1px solid var(--line); border-radius:8px; }
 #valpop { position:absolute; z-index:7; width:250px; padding:10px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #valpop[hidden] { display:none; } #vpName { font-weight:700; margin-bottom:4px; } #vpInput { width:90px; flex:1; }

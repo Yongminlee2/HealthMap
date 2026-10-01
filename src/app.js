@@ -19,23 +19,17 @@ const fmt = x => Number(x).toLocaleString('ko-KR', { maximumFractionDigits: 2 })
 
 // ── 지도 데이터: 호(arc)를 한 번만 풀어 경로 글자로 만들어 두고, 선은 호 단위로 골라 이어 붙인다 ──
 const LAT0 = 38.7, LON0 = 124.5, KX = 800, KY = 1000;          // 위도 보정한 단순 투영
-const MOVE_T = 6;                                               // 움직이는 동안 보건소 경계선에서 이보다 가까운 점(지도 단위, 전국 화면 약 1px)은 버린다
 function buildLayer(topo) {
   const geoms = Object.values(topo.objects)[0].geometries, tr = topo.transform;
   let mnx = 1e9, mny = 1e9, mxx = -1e9, mxy = -1e9;
-  const arcLow = [];
   const arcPts = topo.arcs.map(a => {
-    let x = 0, y = 0, lx = 0, ly = 0; const lo = [];
-    const pts = a.map((q, n) => {
+    let x = 0, y = 0;
+    return a.map(q => {
       x += q[0]; y += q[1];
       const X = (x * tr.scale[0] + tr.translate[0] - LON0) * KX, Y = (LAT0 - (y * tr.scale[1] + tr.translate[1])) * KY;
       if (X < mnx) mnx = X; if (X > mxx) mxx = X; if (Y < mny) mny = Y; if (Y > mxy) mxy = Y;
-      const t = X.toFixed(1) + ' ' + Y.toFixed(1);
-      if (n === 0 || n === a.length - 1 || (X - lx) * (X - lx) + (Y - ly) * (Y - ly) >= MOVE_T * MOVE_T) { lo.push(t); lx = X; ly = Y; }
-      return t;
+      return X.toFixed(1) + ' ' + Y.toFixed(1);
     });
-    arcLow.push(lo);
-    return pts;
   });
   const arcA = new Int32Array(topo.arcs.length).fill(-1), arcB = new Int32Array(topo.arcs.length).fill(-1);   // 호를 쓰는 구역 둘(바깥 호는 B=A)
   const ringD = (ring, src) => {
@@ -50,7 +44,7 @@ function buildLayer(topo) {
   const d = geoms.map(unitD);
   for (let a = 0; a < arcA.length; a++) if (arcA[a] >= 0 && arcB[a] < 0) arcB[a] = arcA[a];
   const props = geoms.map(g => g.properties);
-  return { n: geoms.length, props, d, arcD: arcPts.map(p => 'M' + p.join('L')), arcDLow: arcLow.map(p => 'M' + p.join('L')), arcA, arcB, idx: new Map(props.map((p, i) => [p.c, i])), bbox: [mnx, mny, mxx, mxy] };
+  return { n: geoms.length, props, d, arcD: arcPts.map(p => 'M' + p.join('L')), arcA, arcB, idx: new Map(props.map((p, i) => [p.c, i])), bbox: [mnx, mny, mxx, mxy] };
 }
 const A = buildLayer(TOPO);                                    // 행정동: props {c 코드, n 이름, g 기본 보건소코드}
 let B = null, L = A;                                           // 법정동은 처음 쓸 때 만든다: props {c, n, p 소속 행정동코드}
@@ -81,13 +75,14 @@ const unitLabel = i => L === A ? dongLabel(i) : A.props[A.idx.get(L.props[i].p)]
 
 // ── 지도 그리기 ─────────────────────────────────────────
 const map = $('#map'), ov = $('#overlay'), stage = $('#stage'), tip = $('#tip');
-map.innerHTML = '<g id="gDong" fill-rule="evenodd"></g><g id="gSel" fill="#ff8a00" fill-opacity=".55" stroke="none" pointer-events="none"></g>' +
+map.innerHTML = '<g id="gFill" fill-rule="evenodd"></g><g id="gDong" fill="none" pointer-events="all"></g><g id="gSel" fill="#ff8a00" fill-opacity=".55" stroke="none" pointer-events="none"></g>' +
   '<path id="gInner" fill="none" stroke="#fff" stroke-linejoin="round" pointer-events="none"/>' +
   '<path id="gBorder" fill="none" stroke="#2b3440" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>' +
   '<path id="gSido" fill="none" stroke="#0b1220" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/>';
-const gDong = $('#gDong'), gSel = $('#gSel'), gInner = $('#gInner'), gBorder = $('#gBorder'), gSido = $('#gSido'), dongEls = gDong.children;
+const gFill = $('#gFill'), gDong = $('#gDong'), gSel = $('#gSel'), gInner = $('#gInner'), gBorder = $('#gBorder'), gSido = $('#gSido');
 const [minX, minY, maxX, maxY] = A.bbox, BW = maxX - minX, BH = maxY - minY;
-let vb = { x: 0, y: 0, w: 1, h: 1 }, lastCW = 0, strokesDirty = true, borderFull = '', borderLow = '';
+let vb = { x: 0, y: 0, w: 1, h: 1 }, lastCW = 0, strokesDirty = true;
+const T = { x: 0, y: 0, s: 1 }; let commitTimer = 0;            // 움직이는 동안의 이동·확대량(화면 px). 이 동안은 SVG 를 다시 그리지 않는다
 
 function applyVB() {
   map.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
@@ -97,22 +92,21 @@ function applyVB() {
     strokesDirty = false;
   }
 }
-// 움직이는 동안은 가는 세부선을 숨기고(가장 무거움) 멈추면 다시 보인다. 갱신은 프레임당 한 번.
-let moving = false, quiet = 0, vbQueued = false, borderIsLow = false;
-function syncBorder() {                                        // 전국이 보이는 배율에서 움직일 때만 성긴 경계선(확대 상태에서 쓰면 각져 보임)
-  const want = moving && lastCW / vb.w < 0.3;
-  if (want !== borderIsLow) { borderIsLow = want; gBorder.setAttribute('d', want ? borderLow : borderFull); }
+function moveView() {                                          // 이미 그려진 그림을 GPU 로 밀고 키운다(다시 그리지 않아 부드럽다)
+  map.style.transform = `translate(${T.x}px,${T.y}px) scale(${T.s})`;
+  clearTimeout(commitTimer); commitTimer = setTimeout(commitView, 160);
 }
-function moveVB(zoomed) {
-  if (zoomed) strokesDirty = true;
-  if (!moving) { moving = true; gInner.style.display = 'none'; map.setAttribute('shape-rendering', 'optimizeSpeed'); }
-  syncBorder();
-  clearTimeout(quiet); quiet = setTimeout(() => { moving = false; gInner.style.display = ''; map.removeAttribute('shape-rendering'); syncBorder(); }, 150);
-  if (!vbQueued) { vbQueued = true; requestAnimationFrame(() => { vbQueued = false; applyVB(); }); }
+function commitView() {                                        // 밀고 키운 만큼을 viewBox 에 옮기고 선명하게 한 번 새로 그린다
+  clearTimeout(commitTimer);
+  if (T.x === 0 && T.y === 0 && T.s === 1) return;
+  const cw = stage.clientWidth, ch = stage.clientHeight;
+  vb.x += (-T.x / T.s) * (vb.w / cw); vb.y += (-T.y / T.s) * (vb.h / ch); vb.w /= T.s; vb.h /= T.s;
+  strokesDirty = T.s !== 1; T.x = T.y = 0; T.s = 1; map.style.transform = ''; applyVB();
 }
 function fit() {
   const cw = stage.clientWidth, ch = stage.clientHeight, m = 40;
   if (!cw || !ch) return;                                      // 창이 접혀 크기가 0일 때는 건드리지 않는다
+  T.x = T.y = 0; T.s = 1; map.style.transform = '';
   const sc = Math.min(cw / (BW + 2 * m), ch / (BH + 2 * m));
   vb.w = cw / sc; vb.h = ch / sc; vb.x = minX + BW / 2 - vb.w / 2; vb.y = minY + BH / 2 - vb.h / 2;
   lastCW = cw; strokesDirty = true; applyVB();
@@ -130,19 +124,21 @@ function rebuildLegend(regenColors) {
   }
 }
 const colorOf = id => { const v = S.values[id], k = v === undefined ? -1 : Core.classify(v, S.legend.breaks); return k < 0 ? S.legend.noData : S.legend.colors[k]; };
-function recolor() {
-  const cache = {};
-  for (let i = 0; i < hc.length; i++) dongEls[i].setAttribute('fill', cache[hc[i]] || (cache[hc[i]] = colorOf(hc[i])));
+// 보건소 하나 = 경로 하나로 합쳐 칠한다(동마다 따로 칠하면 이웃 동 사이에 가는 실선이 비친다). 동 경로(gDong)는 보이지 않는 클릭·툴팁용.
+function rebuildFills() {
+  const by = new Map();
+  hc.forEach((c, i) => { if (!by.has(c)) by.set(c, []); by.get(c).push(L.d[i]); });
+  gFill.innerHTML = [...by].map(([c, ds]) => `<path data-c="${c}" d="${ds.join('')}"/>`).join('');
 }
+function recolor() { for (const el of gFill.children) el.setAttribute('fill', colorOf(el.dataset.c)); }
 function drawMesh() {
-  const border = [], borderLo = [], inner = [], { arcA, arcB, arcD, arcDLow } = L;
+  const border = [], inner = [], { arcA, arcB, arcD } = L;
   for (let a = 0; a < arcA.length; a++) {
     const u = arcA[a]; if (u < 0) continue;
     const v = arcB[a];
-    if (u === v || hc[u] !== hc[v]) { border.push(arcD[a]); borderLo.push(arcDLow[a]); } else inner.push(arcD[a]);
+    (u === v || hc[u] !== hc[v] ? border : inner).push(arcD[a]);
   }
-  borderFull = border.join(''); borderLow = borderLo.join('');
-  borderIsLow = false; gBorder.setAttribute('d', borderFull); syncBorder();
+  gBorder.setAttribute('d', border.join(''));
   gInner.setAttribute('d', S.showDong ? inner.join('') : '');
   gSido.setAttribute('d', S.showSido ? sidoPath() : '');
   drawSel();
@@ -226,7 +222,7 @@ function renderAssignPanel() {
 
 // 값·범례만 바뀔 때는 경계를 다시 만들지 않는다
 function refreshColors() { rebuildLegend(false); recolor(); renderLegendPanel(); renderAssignPanel(); renderOverlay(); save(); }
-function refresh() { computeHC(); rebuildLegend(false); recolor(); drawMesh(); renderLegendPanel(); renderAssignPanel(); renderOverlay(); save(); }
+function refresh() { computeHC(); rebuildLegend(false); rebuildFills(); recolor(); drawMesh(); renderLegendPanel(); renderAssignPanel(); renderOverlay(); save(); }
 const msg = (el, t, err) => { const e = $(el); e.textContent = t; e.classList.toggle('err', !!err); };
 
 // ── 데이터 입출력 ───────────────────────────────────────
@@ -359,6 +355,7 @@ $('#fitBtn').onclick = fit;
 $('#edit').onchange = e => { editMode = e.target.checked; map.classList.toggle('edit', editMode); drawSel(); };
 function zoomToSel() {
   if (!sel) return;
+  commitView();
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   hc.forEach((c, i) => { if (c !== sel) return; for (const m of L.d[i].matchAll(/(-?[\d.]+) (-?[\d.]+)/g)) { const x = +m[1], y = +m[2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } });
   if (x0 > x1) return;
@@ -394,17 +391,18 @@ $('#resetEdit').onclick = async () => { if (!confirm('배정·이름 편집을 �
 let drag = null, moved = false;
 map.addEventListener('wheel', e => {
   e.preventDefault();
-  const dy = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY), f = Math.exp(Math.max(-120, Math.min(120, dy)) * 0.002), r = map.getBoundingClientRect();
-  if ((f < 1 && vb.w < BW / 300) || (f > 1 && vb.w > BW * 3)) return;
-  const mx = vb.x + (e.clientX - r.left) / r.width * vb.w, my = vb.y + (e.clientY - r.top) / r.height * vb.h;
-  vb.x = mx - (mx - vb.x) * f; vb.y = my - (my - vb.y) * f; vb.w *= f; vb.h *= f; moveVB(true);
+  const dy = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY), f = Math.exp(Math.max(-120, Math.min(120, dy)) * 0.002), r = stage.getBoundingClientRect();
+  const wNext = vb.w / T.s * f;                                // 확대 뒤 화면에 보일 지도 너비
+  if ((f < 1 && wNext < BW / 300) || (f > 1 && wNext > BW * 3)) return;
+  const mx = e.clientX - r.left, my = e.clientY - r.top, k = 1 / f;
+  T.x = mx - (mx - T.x) * k; T.y = my - (my - T.y) * k; T.s *= k; moveView();
 }, { passive: false });
-map.addEventListener('mousedown', e => { drag = { x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y }; moved = false; });
+map.addEventListener('mousedown', e => { drag = { x: e.clientX, y: e.clientY, tx: T.x, ty: T.y }; moved = false; });
 window.addEventListener('mousemove', e => {
   if (drag) {
-    const r = map.getBoundingClientRect(), dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
     if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
-    if (moved) { vb.x = drag.vx - dx / r.width * vb.w; vb.y = drag.vy - dy / r.height * vb.h; moveVB(false); tip.style.display = 'none'; return; }
+    if (moved) { T.x = drag.tx + dx; T.y = drag.ty + dy; moveView(); tip.style.display = 'none'; return; }
   }
   const t = e.target;
   if (t.dataset && t.dataset.i !== undefined && t.parentNode === gDong) {
@@ -415,7 +413,7 @@ window.addEventListener('mousemove', e => {
     tip.style.left = Math.min(e.clientX - r.left + 14, r.width - tip.offsetWidth - 6) + 'px'; tip.style.top = Math.min(e.clientY - r.top + 14, r.height - tip.offsetHeight - 6) + 'px';
   } else tip.style.display = 'none';
 });
-window.addEventListener('mouseup', () => { drag = null; setTimeout(() => moved = false, 0); });
+window.addEventListener('mouseup', () => { if (drag && moved) commitView(); drag = null; setTimeout(() => moved = false, 0); });
 map.addEventListener('click', e => {
   if (moved) return;
   if (e.target.dataset.i === undefined) return closePop();
@@ -442,6 +440,7 @@ $('#vpInput').addEventListener('keydown', e => { if (e.key === 'Enter') commitPo
 window.addEventListener('keydown', e => { if (e.key === 'Escape') closePop(); });
 map.addEventListener('mouseleave', () => tip.style.display = 'none');
 window.addEventListener('resize', () => {
+  commitView();
   const cw = stage.clientWidth, ch = stage.clientHeight;
   if (!cw || !ch) return;
   if (!lastCW || !isFinite(vb.w + vb.h + vb.x + vb.y)) { fit(); renderOverlay(); return; }
@@ -451,9 +450,10 @@ window.addEventListener('resize', () => {
 
 // 이미지 저장: 지금 화면 그대로(확대 상태·제목·범례 포함)
 function composite() {
+  commitView();
   const cw = stage.clientWidth, ch = stage.clientHeight, m = map.cloneNode(true);
-  m.removeAttribute('id'); m.removeAttribute('class'); m.removeAttribute('style'); m.removeAttribute('shape-rendering');
-  m.querySelector('#gSel')?.remove(); m.querySelector('#gInner').removeAttribute('style'); m.querySelector('#gBorder').setAttribute('d', borderFull);
+  m.removeAttribute('id'); m.removeAttribute('class'); m.removeAttribute('style');
+  m.querySelector('#gSel')?.remove(); m.querySelector('#gDong').remove();
   m.setAttribute('x', 0); m.setAttribute('y', 0); m.setAttribute('width', cw); m.setAttribute('height', ch);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${cw}" height="${ch}" viewBox="0 0 ${cw} ${ch}"><rect width="${cw}" height="${ch}" fill="#fff"/>${new XMLSerializer().serializeToString(m)}${ov.innerHTML}</svg>`;
   return { svg, cw, ch };
