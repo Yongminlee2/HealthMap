@@ -296,6 +296,7 @@ function setUnit(kind) {
   const was = S.unit; if (!['dong', 'bjd', 'hex'].includes(kind)) kind = 'dong';
   if (kind === 'bjd' && !B) B = buildLayer(TOPO_B);
   S.unit = kind; L = kind === 'bjd' ? B : A; $('#unitSel').value = kind;
+  document.querySelectorAll('#unitBtns button').forEach(b => b.classList.toggle('on', b.dataset.u === kind));
   const hexOn = kind === 'hex';
   document.body.classList.toggle('hexmode', hexOn);
   if (hexOn) ensureHex();
@@ -515,6 +516,7 @@ $('#showSido').onchange = e => { S.showSido = e.target.checked; refresh(); };
 $('#showDong').checked = S.showDong;
 $('#showDong').onchange = e => { S.showDong = e.target.checked; refresh(); };
 $('#unitSel').onchange = e => setUnit(e.target.value);
+document.querySelectorAll('#unitBtns button').forEach(b => b.onclick = () => setUnit(b.dataset.u));
 $('#regionSel').innerHTML = ['', ...SIDO_ORDER].map(x => `<option value="${x}">${x || '전국'}</option>`).join('');
 $('#regionSel').value = S.region || '';
 $('#regionSel').onchange = e => { S.region = e.target.value; computeHC(); vis = visOf(); if (!hexMode()) rebuildHit(); computeBounds(); fit(); refresh(); };

@@ -61,6 +61,8 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
 #islandPop[hidden] { display:none; } #islandPop label { display:block; margin:6px 0; } #islandPop select { width:100%; }
 #marq { position:absolute; display:none; z-index:6; pointer-events:none; border:1.5px dashed #d1242f; background:rgba(209,36,47,.08); }
 #map.isl { cursor:crosshair; }
+#unitBtns { display:inline-flex; gap:0; } #unitBtns button { border-radius:0; margin-left:-1px; } #unitBtns button:first-child { border-radius:6px 0 0 6px; margin-left:0; } #unitBtns button:last-child { border-radius:0 6px 6px 0; }
+#unitBtns button.on { background:var(--acc); color:#fff; border-color:var(--acc); position:relative; }
 #tip { position:absolute; display:none; pointer-events:none; background:rgba(20,28,36,.92); color:#fff; padding:6px 9px; border-radius:6px; font-size:12px; white-space:pre; z-index:5; }
 </style>
 </head>
@@ -150,7 +152,8 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
     <svg id="overlay" xmlns="http://www.w3.org/2000/svg"></svg>
     <div id="tools">
       <select id="regionSel" title="보기 범위: 전국 또는 한 시도만"></select>
-      <select id="unitSel" title="지도 종류"><option value="dong">행정동 보기</option><option value="bjd">법정동 보기</option><option value="hex">육각 지도 보기</option></select>
+      <span id="unitBtns"><button class="b" data-u="dong">행정동 지도</button><button class="b" data-u="bjd">법정동 지도</button><button class="b" data-u="hex">육각 지도</button></span>
+      <select id="unitSel" hidden title="지도 종류"><option value="dong">행정동 보기</option><option value="bjd">법정동 보기</option><option value="hex">육각 지도 보기</option></select>
       <select id="islandSel" class="gis-only" title="섬 있음 / 섬 없음"><option value="show">섬 있음</option><option value="hide">섬 없음</option></select>
       <button class="b hex-only" id="hexEditBtn" title="육각 지도에서 드래그해 육각을 골라 지웁니다">육각 정리</button>
       <button class="b gis-only" id="islandBtn" title="지도에서 드래그해 섬을 골라 지웁니다">섬 정리</button>
@@ -770,6 +773,7 @@ function setUnit(kind) {
   const was = S.unit; if (!['dong', 'bjd', 'hex'].includes(kind)) kind = 'dong';
   if (kind === 'bjd' && !B) B = buildLayer(TOPO_B);
   S.unit = kind; L = kind === 'bjd' ? B : A; $('#unitSel').value = kind;
+  document.querySelectorAll('#unitBtns button').forEach(b => b.classList.toggle('on', b.dataset.u === kind));
   const hexOn = kind === 'hex';
   document.body.classList.toggle('hexmode', hexOn);
   if (hexOn) ensureHex();
@@ -989,6 +993,7 @@ $('#showSido').onchange = e => { S.showSido = e.target.checked; refresh(); };
 $('#showDong').checked = S.showDong;
 $('#showDong').onchange = e => { S.showDong = e.target.checked; refresh(); };
 $('#unitSel').onchange = e => setUnit(e.target.value);
+document.querySelectorAll('#unitBtns button').forEach(b => b.onclick = () => setUnit(b.dataset.u));
 $('#regionSel').innerHTML = ['', ...SIDO_ORDER].map(x => `<option value="${x}">${x || '전국'}</option>`).join('');
 $('#regionSel').value = S.region || '';
 $('#regionSel').onchange = e => { S.region = e.target.value; computeHC(); vis = visOf(); if (!hexMode()) rebuildHit(); computeBounds(); fit(); refresh(); };
