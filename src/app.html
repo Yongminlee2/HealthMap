@@ -55,6 +55,8 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
 #shpPop[hidden] { display:none; } #shpPop label { display:block; margin:6px 0; }
 #tools { flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 24px); } #tools select { width:auto; padding:4px 6px; }
 .hex-only { display:none; } body.hexmode .hex-only { display:inline; } body.hexmode .gis-only { display:none; }
+#hexPop { position:absolute; z-index:7; top:58px; right:12px; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#hexPop[hidden] { display:none; } #hexPop label { display:block; margin:6px 0; }
 #islandPop { position:absolute; z-index:7; top:58px; right:12px; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #islandPop[hidden] { display:none; } #islandPop label { display:block; margin:6px 0; } #islandPop select { width:100%; }
 #marq { position:absolute; display:none; z-index:6; pointer-events:none; border:1.5px dashed #d1242f; background:rgba(209,36,47,.08); }
@@ -150,6 +152,7 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
       <select id="regionSel" title="보기 범위: 전국 또는 한 시도만"></select>
       <select id="unitSel" title="지도 종류"><option value="dong">행정동 보기</option><option value="bjd">법정동 보기</option><option value="hex">육각 지도 보기</option></select>
       <select id="islandSel" class="gis-only" title="섬 있음 / 섬 없음"><option value="show">섬 있음</option><option value="hide">섬 없음</option></select>
+      <button class="b hex-only" id="hexEditBtn" title="육각 지도에서 드래그해 육각을 골라 지웁니다">육각 정리</button>
       <button class="b gis-only" id="islandBtn" title="지도에서 드래그해 섬을 골라 지웁니다">섬 정리</button>
       <label class="gis-only"><input type="checkbox" id="showSido" checked> 시도 경계</label>
       <label class="gis-only"><input type="checkbox" id="showDong" checked> 세부 경계</label>
@@ -158,9 +161,17 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
       <button class="b" id="zoomIn" title="확대">＋</button><button class="b" id="zoomOut" title="축소">－</button><button class="b" id="fitBtn" title="확대를 처음으로 되돌리고 지도를 가운데에 맞춥니다">처음 위치</button>
       <button class="b" id="pngBtn">PNG 저장</button>
       <button class="b" id="svgBtn">SVG 저장</button>
-      <button class="b gis-only" id="shpBtn" title="GIS 프로그램(QGIS, ArcGIS)에서 열 수 있는 shape 파일">SHP 저장</button>
+      <button class="b" id="shpBtn" title="GIS 프로그램(QGIS, ArcGIS)에서 열 수 있는 shape 파일">SHP 저장</button>
     </div>
     <div id="valpop" hidden><div id="vpName"></div><div class="row"><input type="number" step="any" id="vpInput" placeholder="값"><button class="btn pri" id="vpOk">확인</button><button class="btn" id="vpClear">지우기</button></div></div>
+    <div id="hexPop" hidden>
+      <b>육각 정리</b>
+      <label><input type="checkbox" id="hexEdit"> 편집 모드: 지도에서 드래그해서 육각 고르기</label>
+      <div class="hint">사각형 안에 <b>완전히 들어온 육각</b>이 빨갛게 선택되고, [삭제] 또는 키보드 <b>Delete</b>로 지웁니다(Shift+드래그: 더 고르기, Esc: 선택 해제). 지도를 움직이려면 <b>스페이스 키를 누른 채</b> 드래그하세요. <b>제주(6곳)·울릉군</b> 육각은 선택되지 않고 항상 남습니다. 지운 육각은 이미지·SHP에서도 빠집니다.</div>
+      <div class="row"><button class="btn pri" id="hexDel" disabled>선택한 육각 삭제 (Delete)</button><button class="btn" id="hexClear">선택 해제</button></div>
+      <div class="row"><button class="btn" id="hexReset">지운 육각 모두 되돌리기</button><button class="btn" id="hexClose">닫기</button></div>
+      <div class="hint" id="hexInfo"></div>
+    </div>
     <div id="islandPop" hidden>
       <b>섬 정리</b>
       <label><input type="checkbox" id="islandEdit"> 편집 모드: 지도에서 드래그해서 섬 고르기</label>
@@ -176,7 +187,7 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
       <b>SHP(GIS 파일) 저장</b>
       <label><input type="radio" name="shpMode" value="hc" checked> <span id="shpLblHc"></span></label>
       <label><input type="radio" name="shpMode" value="unit"> <span id="shpLblUnit"></span></label>
-      <div class="hint">지금 화면의 보건소 배정·값·구간·색이 속성(표)에 들어갑니다. 좌표계는 WGS84(경위도), 글자는 CP949입니다. 경계는 지도용으로 단순화한 것이라 정밀 측량용은 아닙니다.</div>
+      <div class="hint" id="shpHint">지금 화면의 보건소 배정·값·구간·색이 속성(표)에 들어갑니다. 좌표계는 WGS84(경위도), 글자는 CP949입니다. 경계는 지도용으로 단순화한 것이라 정밀 측량용은 아닙니다.</div>
       <div class="row"><button class="btn pri" id="shpGo">내려받기 (zip)</button><button class="btn" id="shpClose">닫기</button></div>
     </div>
     <div id="marq"></div>

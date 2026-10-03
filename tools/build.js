@@ -224,7 +224,7 @@ function scopeCss(css, prefix) {
 const hexSvg = fs.readFileSync(D('hex/ko-all.svg'), 'utf8');
 const hexIds = [...hexSvg.matchAll(/<g id="(\d{8})"/g)].map(m => m[1]);
 if (hexIds.length !== centers.length || new Set(hexIds).size !== hexIds.length || centers.some(c => !hexIds.includes(c.id))) throw new Error('육각 지도 SVG 의 육각 그룹이 보건소 260곳과 다릅니다');
-const REGION_CSS = '.hexroot.region g.hexagon:not(.on),.hexroot.region .sido-hexagon{display:none}.hexroot.region polyline,.hexroot.region line,.hexroot.region circle,.hexroot.region path,.hexroot.region polygon,.hexroot.region text{display:none}.hexroot.region g.hexagon.on polygon,.hexroot.region g.hexagon.on text{display:inline}';
+const REGION_CSS = '.hexroot g.hexagon.cut{display:none}.hexroot.hascut .shadow_st0,.hexroot.hascut .shadow_st1{display:none}.hexroot.region g.hexagon:not(.on),.hexroot.region .sido-hexagon{display:none}.hexroot.region polyline,.hexroot.region line,.hexroot.region circle,.hexroot.region path,.hexroot.region polygon,.hexroot.region text{display:none}.hexroot.region g.hexagon.on polygon,.hexroot.region g.hexagon.on text{display:inline}';
 const hexAfter = hexSvg.slice(hexSvg.indexOf('</style>') + 8);
 const HEX = {
   vb: hexSvg.match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number),

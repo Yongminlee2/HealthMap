@@ -95,7 +95,7 @@ const defCenter = new Map(CENTERS.map(c => [c.id, c]));
 const LS = 'healthmap.v2';
 const newLegend = () => ({ title: '', unit: '', n: 5, mode: 'equal', palette: '파랑', reverse: false, breaks: [], colors: [], customColors: false, noData: '#e3e7eb' });
 const newLines = () => ({ border: '#2b3440', sido: '#0b1220', inner: '#ffffff' });
-const S = { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', legend: newLegend(), lines: newLines(), region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true, islandCut: { dong: [], bjd: [] } };
+const S = { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', legend: newLegend(), lines: newLines(), region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true, islandCut: { dong: [], bjd: [] }, hexCut: [] };
 try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); Object.assign(S, d); S.legend = Object.assign(newLegend(), d.legend); S.lines = Object.assign(newLines(), d.lines); S.islandCut = Object.assign({ dong: [], bjd: [] }, d.islandCut); } catch (e) {}
 let sel = '', editMode = false, dongHC = [], hc = [], cmap = new Map();
 const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} renderSaveBar(); };
@@ -132,7 +132,7 @@ const hexMode = () => S.unit === 'hex';
 const pct = (a, f) => a[Math.min(a.length - 1, Math.floor(a.length * f))];
 const coreOf = (xs, ys) => { xs.sort((a, b) => a - b); ys.sort((a, b) => a - b); return [pct(xs, 0.01), pct(ys, 0.01), pct(xs, 0.99), pct(ys, 0.99)]; };   // 1~99%: 울릉·독도 같은 먼 섬은 가운데 맞춤에서 제외
 const unitSidos = layer => layer.sidoOf || (layer.sidoOf = Array.from({ length: layer.n }, (_, i) => defCenter.get(layer === A ? A.props[i].g : A.props[A.idx.get(layer.props[i].p)].g).sido));
-let selIsl = new Set();                                         // 선택한 섬(덩어리 번호)
+let selIsl = new Set(), selHex = new Set();                                         // 선택한 섬(덩어리 번호)
 // 섬 = 같은 호를 공유하는 덩어리의 연결. 가장 큰 섬 = 본토, 제주 구역 중 가장 큰 섬 = 제주도, 울릉군의 섬들 = 울릉도·독도. 이 셋과 본토는 지울 수 없다.
 function islandInfo(layer) {
   if (layer.protectedC) return;
@@ -169,11 +169,12 @@ function computeBounds() {
     ensureHex(); const [vx, vy, vw, vh] = HEX.vb, K = HEXK;
     if (S.region) {
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-      for (const [id, h] of hexById) { if (cmap.get(id)?.sido !== S.region) continue; for (const m of h.pts.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)) { const x = (+m[1] - vx) * K, y = (+m[2] - vy) * K; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } }
+      const cutSet = new Set(S.hexCut);
+      for (const [id, h] of hexById) { if (cmap.get(id)?.sido !== S.region || cutSet.has(id)) continue; for (const m of h.pts.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)) { const x = (+m[1] - vx) * K, y = (+m[2] - vy) * K; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } }
       if (x0 <= x1) return setBounds(x0, y0, x1, y1);
     }
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;                // SVG 에 적힌 크기보다 실제 그림이 더 크다(남쪽 줄) → 그려진 육각들의 실제 범위
-    for (const g of gHex.querySelectorAll('g.hexagon')) { const q = g.getBBox(); if (!q.width) continue; x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.width); y1 = Math.max(y1, q.y + q.height); }
+    for (const g of gHex.querySelectorAll('g.hexagon')) { let q; try { q = g.getBBox(); } catch (e) { continue; } if (!q.width) continue; x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.width); y1 = Math.max(y1, q.y + q.height); }
     if (x0 <= x1) return setBounds((x0 - vx) * K - 8, (y0 - vy) * K - 8, (x1 - vx) * K + 8, (y1 - vy) * K + 8);
     return setBounds(0, 0, vw * K, vh * K);
   }
@@ -269,19 +270,25 @@ function ensureHex() {
   if (gHex) return;
   const [vx, vy] = HEX.vb;
   map.insertAdjacentHTML('beforeend', `<g id="gHex" class="hexroot" transform="scale(${HEXK}) translate(${-vx},${-vy})" style="display:none"><style>${HEX.css}</style>${HEX.body}</g>`);
-  gHex = $('#gHex');
-  for (const g of gHex.querySelectorAll('g.hexagon')) if (/^\d{8}$/.test(g.id)) { const poly = g.querySelector('polygon'); hexById.set(g.id, { g, poly, val: g.querySelector('.svg_sigungu_val'), names: [...g.querySelectorAll('.svg_sigungu')], pts: poly.getAttribute('points') }); }
+  gHex = $('#gHex'); map.appendChild(gIslSel);                    // 선택 강조는 육각 위에 보여야 한다
+  for (const g of gHex.querySelectorAll('g.hexagon')) if (/^\d{8}$/.test(g.id)) {
+    const poly = g.querySelector('polygon'), pts = poly.getAttribute('points'), mp = [...pts.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(m => [(+m[1] - HEX.vb[0]) * HEXK, (+m[2] - HEX.vb[1]) * HEXK]);
+    hexById.set(g.id, { g, poly, val: g.querySelector('.svg_sigungu_val'), names: [...g.querySelectorAll('.svg_sigungu')], pts,
+      box: [Math.min(...mp.map(q => q[0])), Math.min(...mp.map(q => q[1])), Math.max(...mp.map(q => q[0])), Math.max(...mp.map(q => q[1]))], d: 'M' + mp.map(q => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join('L') + 'Z' });
+  }
 }
 function recolorHex() {
   ensureHex();
+  const cutSet = new Set(S.hexCut);
   for (const [id, h] of hexById) {
     const v = S.values[id];
     h.poly.style.fill = colorOf(id);
     h.val.textContent = S.hexVal === false ? '' : (v === undefined ? '-' : fmt(v));
     for (const t of h.names) t.style.display = S.hexName === false ? 'none' : '';
     h.g.classList.toggle('on', !S.region || cmap.get(id)?.sido === S.region);
+    h.g.classList.toggle('cut', cutSet.has(id));
   }
-  gHex.classList.toggle('region', !!S.region);
+  gHex.classList.toggle('region', !!S.region); gHex.classList.toggle('hascut', cutSet.size > 0);      // 육각을 지우면 뒤쪽 그림자(전체 윤곽)도 함께 뺀다
   for (const t of gHex.querySelectorAll('.svg_sido_val')) t.textContent = '';   // 시도 칸의 '-'는 쓰지 않는다
 }
 const repaint = () => hexMode() ? recolorHex() : recolor();
@@ -292,7 +299,8 @@ function setUnit(kind) {
   const hexOn = kind === 'hex';
   document.body.classList.toggle('hexmode', hexOn);
   if (hexOn) ensureHex();
-  for (const el of [gFill, gDong, gSel, gInner, gBorder, gSido, gIslSel]) el.style.display = hexOn ? 'none' : '';
+  for (const el of [gFill, gDong, gSel, gInner, gBorder, gSido]) el.style.display = hexOn ? 'none' : '';
+  islEdit = false; for (const id of ['#islandEdit', '#hexEdit']) $(id).checked = false; map.classList.remove('isl'); selIsl.clear(); selHex.clear(); drawIslSel(); $('#islandPop').hidden = true; $('#hexPop').hidden = true;   // 보기 종류를 바꾸면 편집 모드·선택을 푼다
   if (gHex) gHex.style.display = hexOn ? '' : 'none';
   computeHC(); vis = visOf(); if (!hexOn) { updateIslands(); rebuildHit(); }
   computeBounds(); if (hexOn || was === 'hex') fit();             // 실제 지도 ↔ 육각 지도는 좌표가 달라서 처음 위치로
@@ -518,7 +526,7 @@ $('#hexVal').onchange = e => { S.hexVal = e.target.checked; recolorHex(); save()
 const layerKey = () => L === A ? 'dong' : 'bjd', islPop = $('#islandPop');
 let islEdit = false, spaceDown = false, marq = null;
 function renderIslandInfo() {
-  if (hexMode() || !L.comps) return;
+  if (hexMode() || !L.comps || !L.compOn) return;                // 섬 정보가 준비되기 전에는 그리지 않는다
   const keys = new Set(S.islandCut[layerKey()] || []); let cut = 0, auto = 0;
   L.comps.forEach((c, i) => { if (L.protectedC[i]) return; if (keys.has(c.key)) cut++; else if (!L.compOn[i]) auto++; });
   const drawn = new Set(); L.unitParts.forEach((ps, u) => { if (vis[u] && ps.some(p => L.compOn[L.partComp[p]])) drawn.add(hc[u]); });
@@ -527,7 +535,19 @@ function renderIslandInfo() {
     (gone.length ? `\n⚠ 지도에서 사라진 보건소 ${gone.length}곳: ${gone.slice(0, 6).join(', ')}${gone.length > 6 ? ' 등' : ''}` : '');
   $('#islandDel').disabled = !selIsl.size;
 }
-function drawIslSel() { gIslSel.setAttribute('d', hexMode() ? '' : [...selIsl].flatMap(c => L.comps[c].parts.map(p => L.partD[p])).join('')); renderIslandInfo(); }
+function drawIslSel() { gIslSel.setAttribute('d', hexMode() ? [...selHex].map(id => hexById.get(id).d).join('') : [...selIsl].flatMap(c => L.comps[c].parts.map(p => L.partD[p])).join('')); renderIslandInfo(); renderHexInfo(); }
+const hexProtected = id => cmap.get(id)?.sido === '제주특별자치도' || id === '37770039';   // 제주 6곳 + 울릉군(울릉도·독도)은 지울 수 없다
+function renderHexInfo() { if (!hexMode()) return; $('#hexInfo').textContent = `선택 ${selHex.size}개 · 지운 육각 ${S.hexCut.length}개`; $('#hexDel').disabled = !selHex.size; }
+function pickHexes(x0, y0, x1, y1, add) {                      // 사각형 안에 완전히 들어온 육각(보호 대상·이미 지운 것 제외)을 고른다
+  if (!add) selHex.clear();
+  const cut = new Set(S.hexCut);
+  for (const [id, h] of hexById) { if (cut.has(id) || hexProtected(id) || !h.g.classList.contains('on')) continue; const b = h.box; if (b[0] >= x0 && b[2] <= x1 && b[1] >= y0 && b[3] <= y1) selHex.add(id); }
+  drawIslSel();
+}
+function deleteHexes() {
+  if (!selHex.size) return;
+  S.hexCut = [...new Set([...S.hexCut, ...selHex])]; selHex.clear(); recolorHex(); computeBounds(); drawIslSel(); renderOverlay(); save();
+}
 function islandsReload(fitView) { updateIslands(); rebuildHit(); computeBounds(); if (fitView) fit(); refresh(); drawIslSel(); }
 function pickIslands(x0, y0, x1, y1, add) {                    // 사각형 안에 완전히 들어온 섬(보호 대상 제외)을 고른다
   if (!add) selIsl.clear();
@@ -539,12 +559,19 @@ function deleteIslands() {
   const k = layerKey(), cur = new Set(S.islandCut[k]); selIsl.forEach(i => cur.add(L.comps[i].key));
   S.islandCut[k] = [...cur]; selIsl.clear(); islandsReload(false);
 }
+const hexPop = $('#hexPop');
+$('#hexEditBtn').onclick = () => { $('#shpPop').hidden = true; hexPop.hidden = !hexPop.hidden; if (!hexPop.hidden) renderHexInfo(); };
+$('#hexClose').onclick = () => { hexPop.hidden = true; };
+$('#hexEdit').onchange = e => { islEdit = e.target.checked; map.classList.toggle('isl', islEdit); if (!islEdit) { selHex.clear(); drawIslSel(); } };
+$('#hexDel').onclick = deleteHexes;
+$('#hexClear').onclick = () => { selHex.clear(); drawIslSel(); };
+$('#hexReset').onclick = () => { if (!confirm('지운 육각을 모두 되돌릴까요?')) return; S.hexCut = []; selHex.clear(); recolorHex(); computeBounds(); fit(); drawIslSel(); save(); };
 $('#islandSel').value = S.islandMode; $('#islandMax').value = String(S.islandMax || 0);
 $('#islandSel').onchange = e => { S.islandMode = e.target.value; islandsReload(true); };
 $('#islandKeep').checked = S.islandKeep !== false;
 $('#islandKeep').onchange = e => { S.islandKeep = e.target.checked; islandsReload(S.islandMode === 'hide'); };
 $('#islandMax').onchange = e => { S.islandMax = +e.target.value; islandsReload(S.islandMode === 'hide'); };
-$('#islandBtn').onclick = () => { $('#shpPop').hidden = true; islPop.hidden = !islPop.hidden; if (!islPop.hidden) renderIslandInfo(); };
+$('#islandBtn').onclick = () => { $('#shpPop').hidden = true; hexPop.hidden = true; islPop.hidden = !islPop.hidden; if (!islPop.hidden) renderIslandInfo(); };
 $('#islandClose').onclick = () => { islPop.hidden = true; };
 $('#islandEdit').onchange = e => { islEdit = e.target.checked; map.classList.toggle('isl', islEdit); if (!islEdit) { selIsl.clear(); drawIslSel(); } };
 $('#islandDel').onclick = deleteIslands;
@@ -598,7 +625,7 @@ map.addEventListener('wheel', e => {
 }, { passive: false });
 map.addEventListener('mousedown', e => {
   moved = false;
-  if (islEdit && !spaceDown && !hexMode() && e.button === 0) { marq = { x: e.clientX, y: e.clientY, add: e.shiftKey }; return; }
+  if (islEdit && !spaceDown && e.button === 0) { marq = { x: e.clientX, y: e.clientY, add: e.shiftKey }; return; }
   drag = { x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y };
 });
 window.addEventListener('mousemove', e => {
@@ -629,13 +656,13 @@ window.addEventListener('mousemove', e => {
 window.addEventListener('mouseup', e => {
   if (marq) {
     const q = marq; marq = null; $('#marq').style.display = 'none';
-    if (moved) { const r = map.getBoundingClientRect(), tx = x => vb.x + (x - r.left) / r.width * vb.w, ty = y => vb.y + (y - r.top) / r.height * vb.h; pickIslands(tx(Math.min(q.x, e.clientX)), ty(Math.min(q.y, e.clientY)), tx(Math.max(q.x, e.clientX)), ty(Math.max(q.y, e.clientY)), q.add); }
+    if (moved) { const r = map.getBoundingClientRect(), tx = x => vb.x + (x - r.left) / r.width * vb.w, ty = y => vb.y + (y - r.top) / r.height * vb.h; (hexMode() ? pickHexes : pickIslands)(tx(Math.min(q.x, e.clientX)), ty(Math.min(q.y, e.clientY)), tx(Math.max(q.x, e.clientX)), ty(Math.max(q.y, e.clientY)), q.add); }
   }
   drag = null; setTimeout(() => moved = false, 0);
 });
 map.addEventListener('click', e => {
   if (moved) return;
-  if (islEdit && !hexMode()) { if (!e.shiftKey && selIsl.size) { selIsl.clear(); drawIslSel(); } return; }          // 섬 편집 중에는 배정·값 입력을 하지 않는다
+  if (islEdit) { if (!e.shiftKey && (selIsl.size || selHex.size)) { selIsl.clear(); selHex.clear(); drawIslSel(); } return; }          // 섬 편집 중에는 배정·값 입력을 하지 않는다
   if (hexMode()) {
     const g = e.target.closest ? e.target.closest('g.hexagon') : null;
     if (!g || !hexById.has(g.id)) return closePop();
@@ -666,8 +693,8 @@ $('#vpOk').onclick = () => commitPop(false); $('#vpClear').onclick = () => commi
 $('#vpInput').addEventListener('keydown', e => { if (e.key === 'Enter') commitPop(false); else if (e.key === 'Escape') closePop(); });
 const typing = () => /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
 window.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closePop(); $('#shpPop').hidden = true; if (selIsl.size) { selIsl.clear(); drawIslSel(); } }
-  else if (e.key === 'Delete' && selIsl.size && !typing()) { e.preventDefault(); deleteIslands(); }
+  if (e.key === 'Escape') { closePop(); $('#shpPop').hidden = true; if (selIsl.size || selHex.size) { selIsl.clear(); selHex.clear(); drawIslSel(); } }
+  else if (e.key === 'Delete' && (selIsl.size || selHex.size) && !typing()) { e.preventDefault(); if (hexMode()) deleteHexes(); else deleteIslands(); }
   else if (e.code === 'Space' && islEdit && !typing() && !/BUTTON/.test(document.activeElement.tagName)) { spaceDown = true; map.style.cursor = 'grab'; e.preventDefault(); }
 });
 window.addEventListener('keyup', e => { if (e.code === 'Space') { spaceDown = false; map.style.cursor = ''; } });
@@ -681,8 +708,29 @@ window.addEventListener('resize', () => {
 });
 
 // SHP(GIS 파일) 저장: 지금 지도의 배정·값·구간·색을 속성으로 담은 zip. mode 'hc' = 보건소 단위로 합침, 'unit' = 지금 보는 단위(행정동/법정동) 그대로
+// 육각 지도 SHP: 육각 하나 = 도형 하나. 그림 좌표(위아래만 뒤집음)라서 좌표계는 없다. 지운 육각·보기 범위 밖은 뺀다.
+function hexShpExport() {
+  const lg = S.legend, items = legendItems(), recs = [], rows = [], now = new Date();
+  const area = r => { let t = 0; for (let i = 0; i < r.length - 1; i++) t += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; return t / 2; };
+  for (const [id, h] of hexById) {
+    if (!h.g.classList.contains('on') || h.g.classList.contains('cut')) continue;
+    const ring = [...h.pts.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(m => [+m[1], -+m[2]]); ring.push(ring[0]);   // SVG 는 y 가 아래로 늘어서 뒤집는다
+    recs.push({ rings: [area(ring) > 0 ? ring.slice().reverse() : ring] });                                      // 바깥 고리는 시계 방향
+    const c = cmap.get(id), v = S.values[id], k = v === undefined ? -1 : Core.classify(v, lg.breaks);
+    rows.push([id, c.name, c.sido, v === undefined ? null : v, k < 0 ? 0 : k + 1, k < 0 ? '' : items[k].t, colorOf(id)]);
+  }
+  const fields = [{ name: 'HC_CODE', type: 'C', len: 8 }, { name: 'HC_NAME', type: 'C', len: 60 }, { name: 'SIDO', type: 'C', len: 30 }, { name: 'VALUE', type: 'N', len: 18, dec: 4 }, { name: 'CLASS', type: 'N', len: 3, dec: 0 }, { name: 'RANGE', type: 'C', len: 40 }, { name: 'COLOR', type: 'C', len: 7 }];
+  const f = Shp.build({ records: recs, fields, rows, encode: Shp.cp949Encoder(TextDecoder) }), ymd = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}`;
+  const readme = ['보건소 GIS 지도 - 육각 지도 SHP 내보내기', '', `저장 시각: ${fmtTime(now.toISOString())}`, `보기 범위: ${S.region || '전국'}`, `내용: 육각 지도 모양 그대로 ${recs.length}개 (보건소 하나 = 육각 하나, 지운 육각 ${S.hexCut.length}개 제외)`,
+    '좌표계: 없음(육각 지도 그림 좌표, 위아래만 뒤집음). QGIS 에서 열면 좌표계가 정의되지 않았다고 나오는데 그대로 쓰면 됩니다. 글자 인코딩: CP949(.cpg 포함)', '',
+    '[속성 표 항목]', 'HC_CODE  보건소 코드', 'HC_NAME  보건소 이름', 'SIDO     시도', 'VALUE    입력한 값(없으면 빈칸)', 'CLASS    범례 구간 번호(1부터, 값이 없으면 0)', 'RANGE    그 구간의 범위', 'COLOR    지도에 칠한 색(#RRGGBB)', '',
+    `[범례 구간]  ${lg.title ? '지도 제목: ' + lg.title : ''}${lg.unit ? '  단위: ' + lg.unit : ''}`, ...items.map((it, i) => `${i < items.length - 1 ? i + 1 : 0}  ${it.t}  ${it.c}`), '', '[출처] 육각 지도: ko-all.svg (지역사회건강조사 육각지도)'].join('\r\n');
+  const files = [['shp', f.shp], ['shx', f.shx], ['dbf', f.dbf], ['cpg', f.cpg]].map(([ext, data]) => ({ name: `HC_hexmap.${ext}`, data }));
+  files.push({ name: 'README_fields.txt', data: new TextEncoder().encode('\ufeff' + readme) });
+  download(new Blob([Shp.zip(files, now)], { type: 'application/zip' }), `보건소지도_SHP_육각지도${S.region ? '_' + S.region : ''}_${ymd}.zip`);
+}
 function shpExport(mode) {
-  if (hexMode()) throw new Error('육각 지도에서는 SHP를 만들 수 없습니다. 행정동·법정동 보기로 바꿔 주세요.');
+  if (hexMode()) return hexShpExport();
   const hcx = hc.map((c, i) => vis[i] ? c : '~' + i);          // 보기 범위 밖 구역은 따로 떼어 내보내지 않는다
   const keep = (u, k) => L.compOn[L.partComp[L.unitParts[u][k]]];                    // 지운 섬은 빼고 내보낸다
   const recs = Shp.geometry(L.topo, hcx, mode, keep).filter(r => r.rings.length && (mode === 'unit' ? vis[r.key] : !String(r.key).startsWith('~'))), lg = S.legend, items = legendItems(), unitName = L === A ? '행정동' : '법정동';
@@ -705,8 +753,10 @@ function shpExport(mode) {
 }
 const shpPop = $('#shpPop');
 $('#shpBtn').onclick = () => {
-  islPop.hidden = true;
+  islPop.hidden = true; hexPop.hidden = true;
   if (!shpPop.hidden) { shpPop.hidden = true; return; }
+  const hexOn = hexMode(); $('#shpLblUnit').parentNode.style.display = hexOn ? 'none' : ''; $('#shpHint').textContent = hexOn ? '육각 지도 모양 그대로 저장됩니다(보건소 하나 = 육각 하나). 그림 좌표라서 좌표계는 없습니다. 지금 화면의 값·구간·색이 속성(표)에 들어가고 글자는 CP949입니다.' : '지금 화면의 보건소 배정·값·구간·색이 속성(표)에 들어갑니다. 좌표계는 WGS84(경위도), 글자는 CP949입니다. 경계는 지도용으로 단순화한 것이라 정밀 측량용은 아닙니다.';
+  if (hexOn) { document.querySelector('input[name=shpMode][value=hc]').checked = true; const nh = [...hexById.values()].filter(h => h.g.classList.contains('on') && !h.g.classList.contains('cut')).length; $('#shpLblHc').textContent = `육각 지도 모양 그대로 (도형 ${nh}개)`; shpPop.hidden = false; return; }
   const nVis = vis.reduce((n, v, i) => n + (v && up(i) ? 1 : 0), 0);
   $('#shpLblHc').textContent = `보건소 단위로 합쳐서 (도형 ${new Set(hc.filter((c, i) => vis[i] && up(i))).size}개)`;
   $('#shpLblUnit').textContent = `${L === A ? '행정동' : '법정동'} 단위 그대로 (도형 ${nVis.toLocaleString('ko-KR')}개)`;
@@ -741,7 +791,7 @@ const HIST_KEY = 'healthmap.hist', META_KEY = 'healthmap.save', p2 = n => String
 let meta = { hash: '', at: '' }, hist = [];                         // hist: 최신순
 try { Object.assign(meta, JSON.parse(localStorage.getItem(META_KEY) || '{}')); hist = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch (e) {}
 const stateHash = () => JSON.stringify(Core.pickState(S));
-const hasWork = () => { const m = Core.summarize(S); return !!(m.values || m.dongEdits || m.bjdEdits || m.newCenters || Object.keys(S.renamed).length || S.legend.title || S.islandCut.dong.length || S.islandCut.bjd.length); };
+const hasWork = () => { const m = Core.summarize(S); return !!(m.values || m.dongEdits || m.bjdEdits || m.newCenters || Object.keys(S.renamed).length || S.legend.title || S.islandCut.dong.length || S.islandCut.bjd.length || S.hexCut.length); };
 const fmtTime = iso => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 const hmsg = (t, err) => msg('#histMsg', t, err);
 function renderSaveBar() {
@@ -765,7 +815,7 @@ function guardUnsaved(why) {
 }
 function applyState(st) {
   const d = Core.pickState(st);
-  Object.assign(S, { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true }, d);
+  Object.assign(S, { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true, hexCut: [] }, d);
   S.islandCut = Object.assign({ dong: [], bjd: [] }, d.islandCut);
   S.legend = Object.assign(newLegend(), d.legend); S.lines = Object.assign(newLines(), d.lines);
   sel = ''; $('#showDong').checked = S.showDong; $('#showSido').checked = S.showSido; $('#regionSel').value = S.region || ''; $('#hexName').checked = S.hexName !== false; $('#hexVal').checked = S.hexVal !== false; $('#islandSel').value = S.islandMode; $('#islandMax').value = String(S.islandMax || 0); $('#islandKeep').checked = S.islandKeep !== false;
