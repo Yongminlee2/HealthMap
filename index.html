@@ -644,17 +644,13 @@ const visOf = () => { const so = S.region ? unitSidos(L) : null; return Uint8Arr
 function computeBounds() {
   if (hexMode()) {
     ensureHex(); const [vx, vy, vw, vh] = HEX.vb, K = HEXK;
-    if (S.region) {
+    // 화면(클래스) 상태가 아니라 데이터(육각 좌표·지운 목록)로 잰다: 갱신 순서와 무관하게 늘 같은 값이 나온다. SVG 에 적힌 크기보다 실제 그림이 더 크다(남쪽 줄)
+    const cutSet = new Set(S.hexCut), pad = S.region ? 0 : 8;
+    for (const only of S.region ? [S.region, ''] : ['']) {
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-      const cutSet = new Set(S.hexCut);
-      for (const [id, h] of hexById) { if (cmap.get(id)?.sido !== S.region || cutSet.has(id)) continue; for (const m of h.pts.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)) { const x = (+m[1] - vx) * K, y = (+m[2] - vy) * K; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } }
-      if (x0 <= x1) return setBounds(x0, y0, x1, y1);
+      for (const [id, h] of hexById) { if (cutSet.has(id) || (only && cmap.get(id)?.sido !== only)) continue; const b = h.box; x0 = Math.min(x0, b[0]); y0 = Math.min(y0, b[1]); x1 = Math.max(x1, b[2]); y1 = Math.max(y1, b[3]); }
+      if (x0 <= x1) return setBounds(x0 - pad, y0 - pad, x1 + pad, y1 + pad);
     }
-    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;                // SVG 에 적힌 크기보다 실제 그림이 더 크다(남쪽 줄) → 그려진 육각들의 실제 범위
-    const hadRegion = gHex.classList.contains('region'); gHex.classList.remove('region');   // 시도 보기로 숨겨 둔 육각도 재야 전국 범위가 나온다(숨겨진 것은 크기가 0으로 잡힌다)
-    for (const g of gHex.querySelectorAll('g.hexagon')) { let q; try { q = g.getBBox(); } catch (e) { continue; } if (!q.width) continue; x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.width); y1 = Math.max(y1, q.y + q.height); }
-    if (hadRegion) gHex.classList.add('region');
-    if (x0 <= x1) return setBounds((x0 - vx) * K - 8, (y0 - vy) * K - 8, (x1 - vx) * K + 8, (y1 - vy) * K + 8);
     return setBounds(0, 0, vw * K, vh * K);
   }
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; const xs = [], ys = [];
@@ -693,8 +689,9 @@ function fit() {
   vb.w = cw / sc; vb.h = ch / sc; vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2;
   lastCW = cw; strokesDirty = true; applyVB();
 }
+const zoomOk = (f, w) => { const m = Math.max(bnd.BW, bnd.BH); return !((f < 1 && w < m / 300) || (f > 1 && w > m * 3)); };   // 세로로 긴 시도도 확대·축소가 막히지 않게 긴 쪽 기준
 function zoomBy(f) {                                           // 화면 가운데 기준 확대(f<1) / 축소(f>1)
-  const wNext = vb.w * f; if ((f < 1 && wNext < bnd.BW / 300) || (f > 1 && wNext > bnd.BW * 3)) return;
+  const wNext = vb.w * f; if (!zoomOk(f, wNext)) return;
   const cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2; vb.w = wNext; vb.h *= f; vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2; queueVB(true);
 }
 
@@ -998,7 +995,8 @@ $('#unitSel').onchange = e => setUnit(e.target.value);
 document.querySelectorAll('#unitBtns button').forEach(b => b.onclick = () => setUnit(b.dataset.u));
 $('#regionSel').innerHTML = ['', ...SIDO_ORDER].map(x => `<option value="${x}">${x || '전국'}</option>`).join('');
 $('#regionSel').value = S.region || '';
-$('#regionSel').onchange = e => { S.region = e.target.value; computeHC(); vis = visOf(); if (!hexMode()) rebuildHit(); computeBounds(); fit(); refresh(); };
+function setRegion(v) { S.region = v; $('#regionSel').value = v; computeHC(); vis = visOf(); if (!hexMode()) rebuildHit(); computeBounds(); fit(); refresh(); }
+$('#regionSel').onchange = e => setRegion(e.target.value);
 $('#hexName').checked = S.hexName !== false; $('#hexVal').checked = S.hexVal !== false;
 $('#hexName').onchange = e => { S.hexName = e.target.checked; recolorHex(); save(); };
 $('#hexVal').onchange = e => { S.hexVal = e.target.checked; recolorHex(); save(); };
@@ -1062,13 +1060,14 @@ $('#fitBtn').onclick = fit; $('#zoomIn').onclick = () => zoomBy(1 / 1.5); $('#zo
 $('#edit').onchange = e => { editMode = e.target.checked; map.classList.toggle('edit', editMode); drawSel(); };
 function zoomToSel() {
   if (!sel) return;
+  if (S.region && cmap.get(sel)?.sido !== S.region) setRegion('');   // 보고 있는 시도 밖의 보건소면 전국으로 풀고 찾아간다(안 그러면 빈 화면으로 가거나 아무 일도 없다)
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   const add = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
   if (hexMode()) { const h = hexById.get(sel); if (!h) return; const [vx, vy] = HEX.vb; for (const m of h.pts.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)) add((+m[1] - vx) * HEXK, (+m[2] - vy) * HEXK); }
   else hc.forEach((c, i) => { if (c !== sel || !vis[i]) return; for (const m of up(i).matchAll(/(-?[\d.]+) (-?[\d.]+)/g)) add(+m[1], +m[2]); });
   if (x0 > x1) return;
   const cw = stage.clientWidth, ch = stage.clientHeight; if (!cw || !ch) return;
-  const bw = Math.max(x1 - x0, 20) * 1.5, bh = Math.max(y1 - y0, 20) * 1.5, sc = Math.min(cw / bw, ch / bh, cw / (bnd.BW / 300));
+  const bw = Math.max(x1 - x0, 20) * 1.5, bh = Math.max(y1 - y0, 20) * 1.5, sc = Math.min(cw / bw, ch / bh, cw / (Math.max(bnd.BW, bnd.BH) / 300));
   vb.w = cw / sc; vb.h = ch / sc; vb.x = (x0 + x1) / 2 - vb.w / 2; vb.y = (y0 + y1) / 2 - vb.h / 2; strokesDirty = true; applyVB();
   if (!hexMode()) { flash = true; drawSel(); clearTimeout(flashTimer); flashTimer = setTimeout(() => { flash = false; drawSel(); }, 3000); }
 }
@@ -1100,7 +1099,7 @@ let drag = null, moved = false;
 map.addEventListener('wheel', e => {
   e.preventDefault();
   const dy = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY), f = Math.exp(Math.max(-120, Math.min(120, dy)) * 0.002), r = map.getBoundingClientRect();
-  if ((f < 1 && vb.w * f < bnd.BW / 300) || (f > 1 && vb.w * f > bnd.BW * 3)) return;
+  if (!zoomOk(f, vb.w * f)) return;
   const mx = vb.x + (e.clientX - r.left) / r.width * vb.w, my = vb.y + (e.clientY - r.top) / r.height * vb.h;
   vb.x = mx - (mx - vb.x) * f; vb.y = my - (my - vb.y) * f; vb.w *= f; vb.h *= f; queueVB(true);
 }, { passive: false });
@@ -1180,13 +1179,14 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { if (e.code === 'Space') { spaceDown = false; map.style.cursor = ''; } });
 map.addEventListener('mouseleave', () => tip.style.display = 'none');
-window.addEventListener('resize', () => {
+function onStageSize() {                                      // 지도 영역 크기가 바뀌면 같은 배율·같은 중심으로 맞춘다(두 번 불려도 두 번째는 아무 일도 안 한다)
   const cw = stage.clientWidth, ch = stage.clientHeight;
   if (!cw || !ch) return;
   if (!lastCW || !isFinite(vb.w + vb.h + vb.x + vb.y)) { fit(); renderOverlay(); return; }
   const sc = lastCW / vb.w, cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
   vb.w = cw / sc; vb.h = ch / sc; vb.x = cx - vb.w / 2; vb.y = cy - vb.h / 2; lastCW = cw; strokesDirty = true; applyVB(); renderOverlay();
-});
+}
+window.addEventListener('resize', onStageSize); if (window.ResizeObserver) new ResizeObserver(onStageSize).observe(stage);   // 창 크기 말고 다른 이유로 영역이 바뀌어도 따라간다
 
 // SHP(GIS 파일) 저장: 지금 지도의 배정·값·구간·색을 속성으로 담은 zip. mode 'hc' = 보건소 단위로 합침, 'unit' = 지금 보는 단위(행정동/법정동) 그대로
 // 육각 지도 SHP: 육각 하나 = 도형 하나. 그림 좌표(위아래만 뒤집음)라서 좌표계는 없다. 지운 육각·보기 범위 밖은 뺀다.
@@ -1334,7 +1334,7 @@ $('#resetAll').onclick = () => {
 window.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); quickSave(); } });
 renderHistory();
 setUnit(S.unit); fit();
-window.__hm = { addSnapshot, applyState, get hist() { return hist; }, get meta() { return meta; }, S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get cmap() { return cmap; }, setUnit };   // 점검용
+window.__hm = { addSnapshot, applyState, get hist() { return hist; }, get meta() { return meta; }, S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get bnd() { return bnd; }, composite, get vb() { return vb; }, computeBounds, fit, zoomBy, zoomToSel, get cmap() { return cmap; }, setUnit };   // 점검용
 })();
 
 </script>
