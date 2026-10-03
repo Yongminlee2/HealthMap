@@ -73,27 +73,31 @@
 
   // ── 지도 데이터(TopoJSON) → 면 레코드. mode 'unit': 구역(동) 하나가 레코드 하나, 'hc': hc[i]가 같은 구역끼리 합쳐 레코드 하나.
   //    돌려주는 값: [{key, units:[구역 번호], rings:[[ [경도,위도]... ]]}] 바깥 고리는 시계, 구멍은 반시계(shapefile 규칙). 합쳐도 면적은 그대로다.
-  Shp.geometry = (topo, hc, mode) => {
+  //    keep(u, k) 를 주면 구역 u 의 k번째 덩어리(섬)만 남긴다(지운 섬 제외). 남는 덩어리가 없는 구역은 rings 가 비어 나온다.
+  Shp.geometry = (topo, hc, mode, keep) => {
     const geoms = Object.values(topo.objects)[0].geometries, tr = topo.transform;
     const arcs = topo.arcs.map(a => { let x = 0, y = 0; return a.map(q => [x += q[0], y += q[1]]); });     // 정수 좌표
     const polys = g => g.type === 'Polygon' ? [g.arcs] : g.arcs;
     const dir = k => k < 0 ? arcs[~k].slice().reverse() : arcs[k];
-    const A = new Int32Array(arcs.length).fill(-1), B = new Int32Array(arcs.length).fill(-1);               // 호를 쓰는 구역 둘
-    geoms.forEach((g, u) => polys(g).forEach(p => p.forEach(r => r.forEach(k => { const a = k < 0 ? ~k : k; if (A[a] < 0) A[a] = u; else if (B[a] < 0 && A[a] !== u) B[a] = u; }))));
+    const A = new Int32Array(arcs.length).fill(-1), B = new Int32Array(arcs.length).fill(-1);               // 호를 쓰는 덩어리 둘(덩어리 번호)
+    const partU = [], partK = [], firstPart = [];                                                          // 덩어리 번호 → 구역·구역 안 순서
+    geoms.forEach((g, u) => { firstPart[u] = partU.length; polys(g).forEach((p, k) => { const id = partU.length; partU.push(u); partK.push(k); p.forEach(r => r.forEach(kk => { const a = kk < 0 ? ~kk : kk; if (A[a] < 0) A[a] = id; else if (B[a] < 0 && A[a] !== id) B[a] = id; })); }); });
     const area = r => { let s = 0; for (let i = 0; i < r.length - 1; i++) s += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; return s / 2; };
     const ringPts = ring => { const out = []; ring.forEach((k, n) => { const p = dir(k); for (let j = n ? 1 : 0; j < p.length; j++) out.push(p[j]); }); return out; };
     const outerSign = Math.sign(area(ringPts(polys(geoms[0])[0][0]))) || 1;                                  // 자료 속 바깥 고리의 방향
     const toLL = r => r.map(p => [p[0] * tr.scale[0] + tr.translate[0], p[1] * tr.scale[1] + tr.translate[1]]);
     const orient = (r, outer) => { const a = area(r); return (outer ? a > 0 : a < 0) ? r.slice().reverse() : r; };   // 바깥: 면적<0(시계), 구멍: 면적>0(반시계)
-    if (mode === 'unit') return geoms.map((g, u) => { const rings = []; polys(g).forEach(p => p.forEach((r, ri) => rings.push(toLL(orient(ringPts(r), ri === 0))))); return { key: u, units: [u], rings }; });
+    const kept = (u, k) => !keep || keep(u, k);
+    if (mode === 'unit') return geoms.map((g, u) => { const rings = []; polys(g).forEach((p, k) => { if (kept(u, k)) p.forEach((r, ri) => rings.push(toLL(orient(ringPts(r), ri === 0)))); }); return { key: u, units: [u], rings }; });
     const by = new Map(); hc.forEach((c, u) => { if (!by.has(c)) by.set(c, []); by.get(c).push(u); });
     const key = p => p[0] + ',' + p[1], out = [];
-    for (const [c, units] of by) {
+    for (const [c, all] of by) {
+      const units = all.filter(u => polys(geoms[u]).some((_, k) => kept(u, k)));
       const segs = [];                                                                                      // 합친 면의 바깥 경계에 해당하는 호만(방향은 원래 고리 그대로)
-      for (const u of units) polys(geoms[u]).forEach(p => p.forEach(r => r.forEach(k => {
-        const a = k < 0 ? ~k : k, v = A[a] === u ? B[a] : A[a];
-        if (v < 0 || v === u || hc[v] !== c) { const pts = dir(k); segs.push({ pts, s: key(pts[0]), e: key(pts[pts.length - 1]) }); }
-      })));
+      for (const u of units) polys(geoms[u]).forEach((p, pk) => { if (!kept(u, pk)) return; const id = firstPart[u] + pk; p.forEach(r => r.forEach(k => {
+        const a = k < 0 ? ~k : k, o = A[a] === id ? B[a] : A[a];                                           // 반대편 덩어리
+        if (o < 0 || o === id || !kept(partU[o], partK[o]) || hc[partU[o]] !== c) { const pts = dir(k); segs.push({ pts, s: key(pts[0]), e: key(pts[pts.length - 1]) }); }
+      })); });
       const starts = new Map(); segs.forEach((sg, i) => { if (!starts.has(sg.s)) starts.set(sg.s, []); starts.get(sg.s).push(i); });
       const used = new Uint8Array(segs.length), rings = [];
       for (let i = 0; i < segs.length; i++) {

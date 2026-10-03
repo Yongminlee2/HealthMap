@@ -81,6 +81,22 @@ function checkReal(file, hcOf, label) {
   assert.strictEqual(bad, 0, label + ': 합친 면적이 구역 면적의 합과 다른 보건소 ' + bad + '개');
   console.log(`real data ${label}: 구역 ${unitRecs.length} → 보건소 ${hcRecs.length}, 면적 보존 OK, 고리 ${rings}`);
 }
+// 6) 섬 지우기: 두 번째 이후 덩어리(섬)를 빼면 면적이 남은 덩어리의 합과 같고, 빈 구역은 도형이 없다
+function checkKeep(file, hcOf, label) {
+  const topo = JSON.parse(fs.readFileSync(file, 'utf8')), tj = require('../tools/node_modules/topojson-client'), obj = Object.values(topo.objects)[0], geoms = obj.geometries, hc = hcOf(geoms);
+  const area = r => { let s = 0; for (let i = 0; i < r.length - 1; i++) s += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; return s / 2; };
+  const keep = (u, k) => k === 0 || (u + k) % 5 === 0;                                      // 첫 덩어리는 항상, 나머지는 일부만 남김
+  const truth = tj.feature(topo, obj).features.map((f, u) => (f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates).reduce((s, poly, k) => s + (keep(u, k) ? poly.reduce((t2, r, i) => t2 + (i === 0 ? 1 : -1) * Math.abs(area(r)), 0) : 0), 0));
+  const units = Shp.geometry(topo, hc, 'unit', keep);
+  units.forEach((r, u) => assert.ok(Math.abs(-r.rings.reduce((s, q) => s + area(q), 0) - truth[u]) < 1e-9 * Math.max(1, truth[u]), label + ' keep unit ' + u));
+  const hcr = Shp.geometry(topo, hc, 'hc', keep); let bad = 0;
+  for (const r of hcr) { const want = r.units.reduce((s, u) => s + truth[u], 0), got = -r.rings.reduce((s, q) => s + area(q), 0); if (!(Math.abs(got - want) < 1e-9 * Math.max(1, want))) bad++; for (const q of r.rings) assert.deepStrictEqual(q[0], q[q.length - 1]); }
+  assert.strictEqual(bad, 0, label + ' keep 보건소 면적 불일치 ' + bad);
+  console.log(`real data ${label}: 섬 일부 제거 후에도 면적 일치 OK (구역 ${units.length}, 보건소 ${hcr.length})`);
+}
+if (fs.existsSync(dongFile)) {
+  checkKeep(dongFile, g => g.map(x => x.properties.g), '행정동');
+}
 if (fs.existsSync(dongFile)) {
   checkReal(dongFile, g => g.map(x => x.properties.g), '행정동(기본 배정)');
   // 사용자가 배정을 바꾼 지도: 구역 일부를 임의의 다른 보건소로 옮겨도 합친 면적이 맞아야 한다
