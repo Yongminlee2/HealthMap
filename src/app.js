@@ -95,7 +95,7 @@ const defCenter = new Map(CENTERS.map(c => [c.id, c]));
 const LS = 'healthmap.v2';
 const newLegend = () => ({ title: '', unit: '', n: 5, mode: 'equal', palette: '파랑', reverse: false, breaks: [], colors: [], customColors: false, noData: '#e3e7eb' });
 const newLines = () => ({ border: '#2b3440', sido: '#0b1220', inner: '#ffffff' });
-const S = { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', legend: newLegend(), lines: newLines(), region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true, islandCut: { dong: [], bjd: [] }, hexCut: [] };
+const S = { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', legend: newLegend(), lines: newLines(), region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true, islandCut: { dong: [], bjd: [] }, hexCut: [], hexPos: {}, hexAdd: [] };
 try { const d = JSON.parse(localStorage.getItem(LS) || '{}'); Object.assign(S, d); S.legend = Object.assign(newLegend(), d.legend); S.lines = Object.assign(newLines(), d.lines); S.islandCut = Object.assign({ dong: [], bjd: [] }, d.islandCut); } catch (e) {}
 let sel = '', editMode = false, dongHC = [], hc = [], cmap = new Map();
 const save = () => { try { localStorage.setItem(LS, JSON.stringify(S)); } catch (e) {} renderSaveBar(); };
@@ -264,30 +264,86 @@ function drawSel() { gSel.innerHTML = ((editMode || flash) && sel) ? hc.map((c, 
 function rebuildHit() { gDong.innerHTML = L.d.map((d0, i) => { const d = up(i); return vis[i] && d ? `<path data-i="${i}" d="${d}"/>` : ''; }).join(''); }
 // ── 육각 지도(ko-all.svg): 같은 값·범례·색으로 칠한다. 육각 그룹 id = 보건소 코드 ──
 const HEXK = 8;                                                // 육각 SVG 좌표 1 = 지도 좌표 8 (실제 지도와 비슷한 크기)
-let gHex = null; const hexById = new Map();
+let gHex = null, gHexGhost = null, gHexSido = null, hexW = 34.9, hexH = 30.2, hexRel = [], hexKey = ''; const hexById = new Map();
+// 육각 하나의 위치·모양: S.hexPos[id] = [dx, dy](SVG 좌표 이동량)을 반영해 그림 위치와 범위(box)·윤곽(d)·꼭짓점(pts)을 맞춘다
+function placeHex(id) {
+  const h = hexById.get(id), [dx, dy] = S.hexPos[id] || [0, 0], [vx, vy] = HEX.vb;
+  h.dx = dx; h.dy = dy;
+  if (dx || dy) h.g.setAttribute('transform', `translate(${dx} ${dy})`); else h.g.removeAttribute('transform');
+  const p = h.base.map(([x, y]) => [x + dx, y + dy]), mp = p.map(([x, y]) => [(x - vx) * HEXK, (y - vy) * HEXK]);
+  h.pts = p.map(q => q[0].toFixed(2) + ',' + q[1].toFixed(2)).join(' ');
+  h.box = [Math.min(...mp.map(q => q[0])), Math.min(...mp.map(q => q[1])), Math.max(...mp.map(q => q[0])), Math.max(...mp.map(q => q[1]))];
+  h.d = 'M' + mp.map(q => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join('L') + 'Z';
+}
+function hexEntry(g) {
+  const poly = g.querySelector('polygon'), base = [...poly.getAttribute('points').matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(m => [+m[1], +m[2]]);
+  const xs = base.map(q => q[0]), ys = base.map(q => q[1]), names = [...g.querySelectorAll('.svg_sigungu')];
+  hexById.set(g.id, { g, poly, val: g.querySelector('.svg_sigungu_val'), names, n0: names.map(t => t.textContent), y0: names.map(t => +t.getAttribute('y')), base,
+    c0: [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2], dx: 0, dy: 0 });
+  placeHex(g.id);
+}
 function ensureHex() {
   if (gHex) return;
   const [vx, vy] = HEX.vb;
-  map.insertAdjacentHTML('beforeend', `<g id="gHex" class="hexroot" transform="scale(${HEXK}) translate(${-vx},${-vy})" style="display:none"><style>${HEX.css}</style>${HEX.body}</g>`);
-  gHex = $('#gHex'); map.appendChild(gIslSel);                    // 선택 강조는 육각 위에 보여야 한다
-  for (const g of gHex.querySelectorAll('g.hexagon')) if (/^\d{8}$/.test(g.id)) {
-    const poly = g.querySelector('polygon'), pts = poly.getAttribute('points'), mp = [...pts.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map(m => [(+m[1] - HEX.vb[0]) * HEXK, (+m[2] - HEX.vb[1]) * HEXK]);
-    hexById.set(g.id, { g, poly, val: g.querySelector('.svg_sigungu_val'), names: [...g.querySelectorAll('.svg_sigungu')], pts,
-      box: [Math.min(...mp.map(q => q[0])), Math.min(...mp.map(q => q[1])), Math.max(...mp.map(q => q[0])), Math.max(...mp.map(q => q[1]))], d: 'M' + mp.map(q => q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join('L') + 'Z' });
+  map.insertAdjacentHTML('beforeend', `<g id="gHex" class="hexroot" transform="scale(${HEXK}) translate(${-vx},${-vy})" style="display:none"><style>${HEX.css}</style>${HEX.body}<path id="gHexSido" fill="none" stroke="#000" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" pointer-events="none"/></g>` +
+    '<path id="gHexGhost" fill="rgba(46,160,67,.3)" stroke="#2ea043" stroke-width="2" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" pointer-events="none"/>');
+  gHex = $('#gHex'); gHexSido = $('#gHexSido'); gHexGhost = $('#gHexGhost'); map.appendChild(gIslSel);       // 선택 강조는 육각 위에 보여야 한다
+  for (const g of gHex.querySelectorAll('g.hexagon')) if (/^\d{8}$/.test(g.id)) hexEntry(g);
+  const t = hexById.values().next().value; hexW = Math.max(...t.base.map(q => q[0])) - Math.min(...t.base.map(q => q[0])); hexH = Math.max(...t.base.map(q => q[1])) - Math.min(...t.base.map(q => q[1]));
+  hexRel = t.base.map(([x, y]) => [x - t.c0[0], y - t.c0[1]]);
+  syncHexAdded();
+}
+// 새로 만든 보건소의 육각은 첫 육각을 본떠 만든다. 없어진 보건소의 육각은 치운다
+function syncHexAdded() {
+  const all = allCenters(), tpl = hexById.values().next().value;
+  S.hexAdd = S.hexAdd.filter(id => all.has(id));
+  for (const id of S.hexAdd) if (!hexById.has(id)) {
+    const g = tpl.g.cloneNode(true); g.id = id; g.setAttribute('class', 'hexagon'); g.removeAttribute('transform');
+    tpl.g.parentNode.appendChild(g); hexEntry(g); hexById.get(id).added = true;
   }
+  for (const [id, h] of [...hexById]) if (!all.has(id) || (h.added && !S.hexAdd.includes(id))) { h.g.remove(); hexById.delete(id); }
+  for (const id of Object.keys(S.hexPos)) if (!hexById.has(id)) delete S.hexPos[id];
+}
+// 육각을 옮기면 원래 SVG 의 시도 경계선은 안 맞으므로, 지금 배치에서 이웃 육각과 시도가 다른 변을 다시 그린다
+function hexSidoPath(cutSet) {
+  const E = [], cell = new Map(); let n = 0;
+  for (const [id, h] of hexById) {
+    if (cutSet.has(id)) continue; const sd = cmap.get(id)?.sido, p = h.base.map(([x, y]) => [x + h.dx, y + h.dy]);
+    for (let j = 0; j < p.length; j++) {
+      const a = p[j], b = p[(j + 1) % p.length], e = { id, sd, n: n++, a, b, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 }, k = Math.floor(e.mx / 4) + ',' + Math.floor(e.my / 4);
+      E.push(e); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(e);
+    }
+  }
+  const out = [];
+  for (const e of E) {
+    let nb = null; const cx = Math.floor(e.mx / 4), cy = Math.floor(e.my / 4);
+    for (let i = -1; i <= 1 && !nb; i++) for (let j = -1; j <= 1 && !nb; j++) for (const f of cell.get((cx + i) + ',' + (cy + j)) || []) if (f.id !== e.id && Math.hypot(f.mx - e.mx, f.my - e.my) < 1.5) { nb = f; break; }
+    if (nb && nb.sd !== e.sd && e.n < nb.n) out.push(`M${e.a[0].toFixed(2)} ${e.a[1].toFixed(2)}L${e.b[0].toFixed(2)} ${e.b[1].toFixed(2)}`);
+  }
+  return out.join('');
 }
 function recolorHex() {
-  ensureHex();
+  ensureHex(); syncHexAdded();
   const cutSet = new Set(S.hexCut);
   for (const [id, h] of hexById) {
-    const v = S.values[id];
+    const o = S.hexPos[id] || [0, 0]; if (h.dx !== o[0] || h.dy !== o[1]) placeHex(id);
+    const v = S.values[id], c = cmap.get(id), custom = c && (S.renamed[id] !== undefined || S.extra.some(e => e.id === id));   // 이름을 바꿨거나 새로 만든 보건소는 육각 안 글자도 새 이름
+    const nm = custom ? (c.name.replace(/보건의료원|보건소/g, '').trim() || c.name) : '';
     h.poly.style.fill = colorOf(id);
     h.val.textContent = S.hexVal === false ? '' : (v === undefined ? '-' : fmt(v));
-    for (const t of h.names) t.style.display = S.hexName === false ? 'none' : '';
-    h.g.classList.toggle('on', !S.region || cmap.get(id)?.sido === S.region);
+    h.names.forEach((t, k) => {
+      if (custom) { t.textContent = k ? '' : nm; if (!k) t.setAttribute('y', h.y0.reduce((a, b) => a + b, 0) / h.y0.length); }
+      else { t.textContent = h.n0[k]; t.setAttribute('y', h.y0[k]); }
+      t.style.display = S.hexName === false ? 'none' : '';
+    });
+    h.g.classList.toggle('on', !S.region || c?.sido === S.region);
     h.g.classList.toggle('cut', cutSet.has(id));
   }
-  gHex.classList.toggle('region', !!S.region); gHex.classList.toggle('hascut', cutSet.size > 0);      // 육각을 지우면 뒤쪽 그림자(전체 윤곽)도 함께 뺀다
+  const moved = Object.keys(S.hexPos).length > 0 || S.hexAdd.length > 0;
+  gHex.classList.toggle('region', !!S.region); gHex.classList.toggle('hascut', cutSet.size > 0 || moved);      // 육각을 지우거나 옮기면 뒤쪽 그림자(전체 윤곽)도 함께 뺀다
+  for (const el of gHex.querySelectorAll('.st19,.st20')) el.style.display = moved ? 'none' : '';              // 옮겼으면 원래 시도 경계선 대신 다시 그린 것
+  const key = moved ? JSON.stringify([S.hexPos, S.hexCut, S.hexAdd]) : '';
+  if (key !== hexKey) { hexKey = key; gHexSido.setAttribute('d', moved ? hexSidoPath(cutSet) : ''); }
   for (const t of gHex.querySelectorAll('.svg_sido_val')) t.textContent = '';   // 시도 칸의 '-'는 쓰지 않는다
 }
 const repaint = () => hexMode() ? recolorHex() : recolor();
@@ -501,7 +557,7 @@ $('#lineColors').innerHTML = LINE_DEFS.map(([k, t]) => `<div class="lrow"><span>
   '<div class="row"><button class="btn" id="lineReset">경계선 색 기본값으로</button></div>';
 function applyLines() {
   gBorder.setAttribute('stroke', S.lines.border); gInner.setAttribute('stroke', S.lines.inner); gSido.setAttribute('stroke', S.lines.sido);
-  if (gHex) for (const el of gHex.querySelectorAll('.st19')) el.style.stroke = S.lines.sido;      // 육각 지도의 시도 경계선
+  if (gHex) { for (const el of gHex.querySelectorAll('.st19')) el.style.stroke = S.lines.sido; gHexSido.style.stroke = S.lines.sido; }      // 육각 지도의 시도 경계선
   if (gHex) for (const el of gHex.querySelectorAll('.svg_poly')) el.style.stroke = S.lines.border === newLines().border ? '' : S.lines.border;   // 육각 윤곽 = 보건소 경계선(기본색이면 원래 SVG 색 유지)
   for (const i of $('#lineColors').querySelectorAll('input[type=color]')) i.value = S.lines[i.dataset.k];
 }
@@ -540,7 +596,8 @@ function renderIslandInfo() {
 }
 function drawIslSel() { gIslSel.setAttribute('d', hexMode() ? [...selHex].map(id => hexById.get(id).d).join('') : [...selIsl].flatMap(c => L.comps[c].parts.map(p => L.partD[p])).join('')); renderIslandInfo(); renderHexInfo(); }
 const hexProtected = id => cmap.get(id)?.sido === '제주특별자치도' || id === '37770039';   // 제주 6곳 + 울릉군(울릉도·독도)은 지울 수 없다
-function renderHexInfo() { if (!hexMode()) return; $('#hexInfo').textContent = `선택 ${selHex.size}개 · 지운 육각 ${S.hexCut.length}개`; $('#hexDel').disabled = !selHex.size; }
+const hexMsg = (t, err) => msg('#hexMsg', t, err);
+function renderHexInfo() { if (!hexMode()) return; $('#hexInfo').textContent = `선택 ${selHex.size}개 · 지운 육각 ${S.hexCut.length}개 · 옮긴 육각 ${Object.keys(S.hexPos).length}개 · 새로 놓은 육각 ${S.hexAdd.length}개`; $('#hexDel').disabled = !selHex.size; }
 function pickHexes(x0, y0, x1, y1, add) {                      // 사각형 안에 완전히 들어온 육각(보호 대상·이미 지운 것 제외)을 고른다
   if (!add) selHex.clear();
   const cut = new Set(S.hexCut);
@@ -562,10 +619,59 @@ function deleteIslands() {
   const k = layerKey(), cur = new Set(S.islandCut[k]); selIsl.forEach(i => cur.add(L.comps[i].key));
   S.islandCut[k] = [...cur]; selIsl.clear(); islandsReload(false);
 }
+
+// ── 육각 옮기기·놓기: 놓을 수 있는 자리 = 지금 육각들의 둘레(이웃 칸 6곳) 중 비어 있는 곳 ──
+const hexTool = () => (document.querySelector('input[name=hexTool]:checked') || {}).value || 'select';
+const svgPt = e => { const r = map.getBoundingClientRect(); return [vb.x + (e.clientX - r.left) / r.width * vb.w, vb.y + (e.clientY - r.top) / r.height * vb.h]; };
+let spotCache = { key: '', spots: [] }, hdrag = null;
+function getSpots(skip) {                                       // skip: 이 보건소 육각은 없는 셈 치고(옮겨 갈 것이므로) 계산
+  const key = JSON.stringify([S.hexPos, S.hexCut, S.hexAdd, skip]); if (spotCache.key === key) return spotCache.spots;
+  const cut = new Set(S.hexCut), cs = [];
+  for (const [id, h] of hexById) if (!cut.has(id) && id !== skip) cs.push({ id, x: h.c0[0] + h.dx, y: h.c0[1] + h.dy });
+  const DX = hexW * 0.75, DY = hexH / 2, off = [[DX, DY], [DX, -DY], [-DX, DY], [-DX, -DY], [0, 2 * DY], [0, -2 * DY]], free = [];
+  for (const c of cs) for (const [ox, oy] of off) { const x = c.x + ox, y = c.y + oy; if (!cs.some(q => Math.hypot(q.x - x, q.y - y) < hexH * 0.4)) free.push({ id: null, x, y }); }
+  spotCache = { key, spots: cs.concat(free) }; return spotCache.spots;
+}
+const nearSpot = (spots, x, y) => { let best = null, bd = hexH * 0.65; for (const s of spots) { const d = Math.hypot(s.x - x, s.y - y); if (d < bd) { bd = d; best = s; } } return best; };
+function showGhost(s, swap) {
+  if (!gHexGhost) return;
+  if (!s) return gHexGhost.setAttribute('d', '');
+  const [vx, vy] = HEX.vb;
+  gHexGhost.setAttribute('d', 'M' + hexRel.map(([x, y]) => ((s.x + x - vx) * HEXK).toFixed(1) + ' ' + ((s.y + y - vy) * HEXK).toFixed(1)).join('L') + 'Z');
+  gHexGhost.setAttribute('fill', swap ? 'rgba(245,158,11,.3)' : 'rgba(46,160,67,.3)'); gHexGhost.setAttribute('stroke', swap ? '#f59e0b' : '#2ea043');
+}
+function setPos(id, dx, dy) {
+  dx = Math.round(dx * 100) / 100; dy = Math.round(dy * 100) / 100;
+  if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) delete S.hexPos[id]; else S.hexPos[id] = [dx, dy];
+  placeHex(id);
+}
+function afterHexLayout() { recolorHex(); computeBounds(); drawIslSel(); renderOverlay(); save(); }
+function hexEditBlocked() { if (!S.region) return false; hexMsg("시도 보기에서는 옮기거나 놓을 수 없습니다. 위쪽에서 '전국'으로 바꿔 주세요.", true); return true; }
+function commitHexMove(d, s) {                                  // s.id 가 있으면 그 육각과 자리를 바꾼다
+  const h = d.h, orig = [h.c0[0] + d.dx0, h.c0[1] + d.dy0];
+  if (s.id) { const o = hexById.get(s.id); setPos(s.id, orig[0] - o.c0[0], orig[1] - o.c0[1]); }
+  setPos(d.id, s.x - h.c0[0], s.y - h.c0[1]); afterHexLayout();
+  hexMsg(s.id ? `'${cmap.get(d.id)?.name}' 과(와) '${cmap.get(s.id)?.name}' 의 자리를 바꿨습니다.` : `'${cmap.get(d.id)?.name}' 육각을 옮겼습니다.`);
+}
+function placeSel(e) {
+  if (hexEditBlocked()) return;
+  if (!sel || !cmap.get(sel)) return hexMsg('먼저 왼쪽 [배정 편집] 탭에서 놓을 보건소를 고르세요.', true);
+  const [mx, my] = svgPt(e), [vx, vy] = HEX.vb, s = nearSpot(getSpots(sel), mx / HEXK + vx, my / HEXK + vy);
+  if (!s || s.id) return hexMsg('빈 자리를 클릭하세요(연한 초록 윤곽이 놓일 자리입니다).', true);
+  S.hexCut = S.hexCut.filter(x => x !== sel); if (!hexById.has(sel) && !S.hexAdd.includes(sel)) S.hexAdd.push(sel);
+  recolorHex(); const h = hexById.get(sel); setPos(sel, s.x - h.c0[0], s.y - h.c0[1]); afterHexLayout();
+  hexMsg(`'${cmap.get(sel).name}' 육각을 놓았습니다.`);
+}
+document.querySelectorAll('input[name=hexTool]').forEach(r => r.onchange = () => { selHex.clear(); drawIslSel(); showGhost(null); map.classList.toggle('hexmv', hexTool() !== 'select'); hexMsg(''); });
+$('#hexPosReset').onclick = () => {
+  if (!Object.keys(S.hexPos).length && !S.hexAdd.length) return;
+  if (!confirm('옮긴 육각을 모두 제자리로 되돌리고, 새로 놓은 육각은 없앨까요?')) return;
+  S.hexPos = {}; S.hexAdd = []; recolorHex(); computeBounds(); fit(); drawIslSel(); renderOverlay(); save();
+};
 const hexPop = $('#hexPop');
 $('#hexEditBtn').onclick = () => { $('#shpPop').hidden = true; hexPop.hidden = !hexPop.hidden; if (!hexPop.hidden) renderHexInfo(); };
 $('#hexClose').onclick = () => { hexPop.hidden = true; };
-$('#hexEdit').onchange = e => { islEdit = e.target.checked; map.classList.toggle('isl', islEdit); if (!islEdit) { selHex.clear(); drawIslSel(); } };
+$('#hexEdit').onchange = e => { islEdit = e.target.checked; map.classList.toggle('isl', islEdit); map.classList.toggle('hexmv', islEdit && hexTool() !== 'select'); if (!islEdit) { selHex.clear(); drawIslSel(); showGhost(null); } };
 $('#hexDel').onclick = deleteHexes;
 $('#hexClear').onclick = () => { selHex.clear(); drawIslSel(); };
 $('#hexReset').onclick = () => { if (!confirm('지운 육각을 모두 되돌릴까요?')) return; S.hexCut = []; selHex.clear(); recolorHex(); computeBounds(); fit(); drawIslSel(); save(); };
@@ -629,10 +735,22 @@ map.addEventListener('wheel', e => {
 }, { passive: false });
 map.addEventListener('mousedown', e => {
   moved = false;
-  if (islEdit && !spaceDown && e.button === 0) { marq = { x: e.clientX, y: e.clientY, add: e.shiftKey }; return; }
+  if (islEdit && !spaceDown && e.button === 0) {
+    if (hexMode() && hexTool() !== 'select') {                 // 육각 옮기기·놓기
+      if (hexTool() === 'move' && !hexEditBlocked()) { const g = e.target.closest ? e.target.closest('g.hexagon') : null, h = g && hexById.get(g.id); if (h) { g.parentNode.appendChild(g); hdrag = { id: g.id, h, p0: svgPt(e), dx0: h.dx, dy0: h.dy, spots: getSpots(null), spot: null }; } }
+      return;
+    }
+    marq = { x: e.clientX, y: e.clientY, add: e.shiftKey }; return;
+  }
   drag = { x: e.clientX, y: e.clientY, vx: vb.x, vy: vb.y };
 });
 window.addEventListener('mousemove', e => {
+  if (hdrag) {                                                 // 육각 끌기: 지금 위치를 바로 보여 주고 놓일 자리(초록)·자리 바꿈(주황)을 미리 보여 준다
+    const p = svgPt(e), dx = hdrag.dx0 + (p[0] - hdrag.p0[0]) / HEXK, dy = hdrag.dy0 + (p[1] - hdrag.p0[1]) / HEXK; moved = true; tip.style.display = 'none';
+    hdrag.h.g.setAttribute('transform', `translate(${dx} ${dy})`); hdrag.dx = dx; hdrag.dy = dy;
+    hdrag.spot = nearSpot(hdrag.spots, hdrag.h.c0[0] + dx, hdrag.h.c0[1] + dy); showGhost(hdrag.spot, hdrag.spot && hdrag.spot.id && hdrag.spot.id !== hdrag.id); return;
+  }
+  if (islEdit && hexMode() && hexTool() === 'place' && !S.region) { const [vx, vy] = HEX.vb, p = svgPt(e), s = sel && cmap.get(sel) ? nearSpot(getSpots(sel), p[0] / HEXK + vx, p[1] / HEXK + vy) : null; showGhost(s && !s.id ? s : null); tip.style.display = 'none'; return; }
   if (marq) {
     const sr = stage.getBoundingClientRect(), w = Math.abs(e.clientX - marq.x), h = Math.abs(e.clientY - marq.y), m = $('#marq');
     if (w + h > 3) moved = true;
@@ -658,6 +776,7 @@ window.addEventListener('mousemove', e => {
   } else tip.style.display = 'none';
 });
 window.addEventListener('mouseup', e => {
+  if (hdrag) { const d = hdrag; hdrag = null; showGhost(null); if (d.spot && d.spot.id !== d.id) commitHexMove(d, d.spot); else placeHex(d.id); }
   if (marq) {
     const q = marq; marq = null; $('#marq').style.display = 'none';
     if (moved) { const r = map.getBoundingClientRect(), tx = x => vb.x + (x - r.left) / r.width * vb.w, ty = y => vb.y + (y - r.top) / r.height * vb.h; (hexMode() ? pickHexes : pickIslands)(tx(Math.min(q.x, e.clientX)), ty(Math.min(q.y, e.clientY)), tx(Math.max(q.x, e.clientX)), ty(Math.max(q.y, e.clientY)), q.add); }
@@ -666,6 +785,7 @@ window.addEventListener('mouseup', e => {
 });
 map.addEventListener('click', e => {
   if (moved) return;
+  if (islEdit && hexMode() && hexTool() === 'place') return placeSel(e);
   if (islEdit) { if (!e.shiftKey && (selIsl.size || selHex.size)) { selIsl.clear(); selHex.clear(); drawIslSel(); } return; }          // 섬 편집 중에는 배정·값 입력을 하지 않는다
   if (hexMode()) {
     const g = e.target.closest ? e.target.closest('g.hexagon') : null;
@@ -702,7 +822,7 @@ window.addEventListener('keydown', e => {
   else if (e.code === 'Space' && islEdit && !typing() && !/BUTTON/.test(document.activeElement.tagName)) { spaceDown = true; map.style.cursor = 'grab'; e.preventDefault(); }
 });
 window.addEventListener('keyup', e => { if (e.code === 'Space') { spaceDown = false; map.style.cursor = ''; } });
-map.addEventListener('mouseleave', () => tip.style.display = 'none');
+map.addEventListener('mouseleave', () => { tip.style.display = 'none'; if (!hdrag) showGhost(null); });
 function onStageSize() {                                      // 지도 영역 크기가 바뀌면 같은 배율·같은 중심으로 맞춘다(두 번 불려도 두 번째는 아무 일도 안 한다)
   const cw = stage.clientWidth, ch = stage.clientHeight;
   if (!cw || !ch) return;
@@ -774,7 +894,7 @@ $('#shpGo').onclick = () => { try { shpExport(document.querySelector('input[name
 function composite() {
   const keepLod = !hexMode() && lod ? lod : 0; if (keepLod) { lod = 0; drawLines(); }   // 내보내는 이미지는 선도 원본 점으로
   const cw = stage.clientWidth, ch = stage.clientHeight, m = map.cloneNode(true);
-  m.removeAttribute('id'); m.removeAttribute('class'); m.removeAttribute('style');
+  m.removeAttribute('id'); m.removeAttribute('class'); m.removeAttribute('style'); m.querySelector('#gHexGhost')?.remove();
   if (hexMode()) m.querySelectorAll('#gFill,#gDong,#gSel,#gInner,#gBorder,#gSido,#gIslSel').forEach(x => x.remove());
   else { m.querySelector('#gSel')?.remove(); m.querySelector('#gDong').remove(); m.querySelector('#gHex')?.remove(); m.querySelector('#gIslSel')?.remove(); }
   m.setAttribute('x', 0); m.setAttribute('y', 0); m.setAttribute('width', cw); m.setAttribute('height', ch);
@@ -796,7 +916,7 @@ const HIST_KEY = 'healthmap.hist', META_KEY = 'healthmap.save', p2 = n => String
 let meta = { hash: '', at: '' }, hist = [];                         // hist: 최신순
 try { Object.assign(meta, JSON.parse(localStorage.getItem(META_KEY) || '{}')); hist = JSON.parse(localStorage.getItem(HIST_KEY) || '[]'); } catch (e) {}
 const stateHash = () => JSON.stringify(Core.pickState(S));
-const hasWork = () => { const m = Core.summarize(S); return !!(m.values || m.dongEdits || m.bjdEdits || m.newCenters || Object.keys(S.renamed).length || S.legend.title || S.islandCut.dong.length || S.islandCut.bjd.length || S.hexCut.length); };
+const hasWork = () => { const m = Core.summarize(S); return !!(m.values || m.dongEdits || m.bjdEdits || m.newCenters || Object.keys(S.renamed).length || S.legend.title || S.islandCut.dong.length || S.islandCut.bjd.length || S.hexCut.length || Object.keys(S.hexPos).length || S.hexAdd.length); };
 const fmtTime = iso => { const d = new Date(iso); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 const hmsg = (t, err) => msg('#histMsg', t, err);
 function renderSaveBar() {
@@ -820,7 +940,7 @@ function guardUnsaved(why) {
 }
 function applyState(st) {
   const d = Core.pickState(st);
-  Object.assign(S, { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true, hexCut: [] }, d);
+  Object.assign(S, { values: {}, overrides: {}, overridesB: {}, extra: [], renamed: {}, showDong: true, showSido: true, unit: 'dong', region: '', hexVal: true, hexName: true, islandMode: 'show', islandMax: 0, islandKeep: true, hexCut: [], hexPos: {}, hexAdd: [] }, d);
   S.islandCut = Object.assign({ dong: [], bjd: [] }, d.islandCut);
   S.legend = Object.assign(newLegend(), d.legend); S.lines = Object.assign(newLines(), d.lines);
   sel = ''; $('#showDong').checked = S.showDong; $('#showSido').checked = S.showSido; $('#regionSel').value = S.region || ''; $('#hexName').checked = S.hexName !== false; $('#hexVal').checked = S.hexVal !== false; $('#islandSel').value = S.islandMode; $('#islandMax').value = String(S.islandMax || 0); $('#islandKeep').checked = S.islandKeep !== false;

@@ -60,7 +60,7 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
 #islandPop { position:absolute; z-index:7; top:58px; right:12px; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #islandPop[hidden] { display:none; } #islandPop label { display:block; margin:6px 0; } #islandPop select { width:100%; }
 #marq { position:absolute; display:none; z-index:6; pointer-events:none; border:1.5px dashed #d1242f; background:rgba(209,36,47,.08); }
-#map.isl { cursor:crosshair; }
+#map.isl { cursor:crosshair; } #map.isl.hexmv { cursor:move; }
 #unitBtns { display:inline-flex; gap:0; } #unitBtns button { border-radius:0; margin-left:-1px; } #unitBtns button:first-child { border-radius:6px 0 0 6px; margin-left:0; } #unitBtns button:last-child { border-radius:0 6px 6px 0; }
 #unitBtns button.on { background:var(--acc); color:#fff; border-color:var(--acc); position:relative; }
 #tip { position:absolute; display:none; pointer-events:none; background:rgba(20,28,36,.92); color:#fff; padding:6px 9px; border-radius:6px; font-size:12px; white-space:pre; z-index:5; }
@@ -155,7 +155,7 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
       <span id="unitBtns"><button class="b" data-u="dong">행정동 지도</button><button class="b" data-u="bjd">법정동 지도</button><button class="b" data-u="hex">육각 지도</button></span>
       <select id="unitSel" hidden title="지도 종류"><option value="dong">행정동 보기</option><option value="bjd">법정동 보기</option><option value="hex">육각 지도 보기</option></select>
       <select id="islandSel" class="gis-only" title="섬 있음 / 섬 없음"><option value="show">섬 있음</option><option value="hide">섬 없음</option></select>
-      <button class="b hex-only" id="hexEditBtn" title="육각 지도에서 드래그해 육각을 골라 지웁니다">육각 정리</button>
+      <button class="b hex-only" id="hexEditBtn" title="육각 지도에서 육각을 지우고, 옮기고, 새로 놓습니다">육각 편집</button>
       <button class="b gis-only" id="islandBtn" title="지도에서 드래그해 섬을 골라 지웁니다">섬 정리</button>
       <label class="gis-only"><input type="checkbox" id="showSido" checked> 시도 경계</label>
       <label class="gis-only"><input type="checkbox" id="showDong" checked> 세부 경계</label>
@@ -168,12 +168,16 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
     </div>
     <div id="valpop" hidden><div id="vpName"></div><div class="row"><input type="number" step="any" id="vpInput" placeholder="값"><button class="btn pri" id="vpOk">확인</button><button class="btn" id="vpClear">지우기</button></div></div>
     <div id="hexPop" hidden>
-      <b>육각 정리</b>
-      <label><input type="checkbox" id="hexEdit"> 편집 모드: 지도에서 드래그해서 육각 고르기</label>
-      <div class="hint">사각형 안에 <b>완전히 들어온 육각</b>이 빨갛게 선택되고, [삭제] 또는 키보드 <b>Delete</b>로 지웁니다(Shift+드래그: 더 고르기, Esc: 선택 해제). 지도를 움직이려면 <b>스페이스 키를 누른 채</b> 드래그하세요. <b>제주(6곳)·울릉군</b> 육각은 선택되지 않고 항상 남습니다. 지운 육각은 이미지·SHP에서도 빠집니다.</div>
+      <b>육각 편집</b>
+      <label><input type="checkbox" id="hexEdit"> 편집 모드 켜기</label>
+      <label><input type="radio" name="hexTool" value="select" checked> <b>고르기·삭제</b> — 드래그로 사각형을 그려 육각 고르기</label>
+      <label><input type="radio" name="hexTool" value="move"> <b>옮기기</b> — 육각을 끌어서 빈 자리에 놓기(다른 육각 위에 놓으면 서로 자리 바꿈)</label>
+      <label><input type="radio" name="hexTool" value="place"> <b>놓기</b> — 왼쪽 [배정 편집]에서 고른 보건소를 클릭한 빈 자리에 놓기(새 보건소·지운 육각 되살리기)</label>
+      <div class="hint">고르기: 사각형 안에 <b>완전히 들어온 육각</b>이 빨갛게 선택되고 [삭제] 또는 <b>Delete</b>로 지웁니다(Shift+드래그: 더 고르기, Esc: 해제). 옮기기·놓기는 연한 윤곽이 놓일 자리를 보여 줍니다(전국 보기에서만). 지도를 움직이려면 <b>스페이스 키를 누른 채</b> 드래그하세요. <b>제주(6곳)·울릉군</b> 육각은 지울 수 없습니다(옮기는 건 가능). 육각을 옮기면 시도 경계선은 육각 배치에 맞춰 다시 그려지고, 모든 편집은 이미지·SHP에 반영됩니다.</div>
       <div class="row"><button class="btn pri" id="hexDel" disabled>선택한 육각 삭제 (Delete)</button><button class="btn" id="hexClear">선택 해제</button></div>
-      <div class="row"><button class="btn" id="hexReset">지운 육각 모두 되돌리기</button><button class="btn" id="hexClose">닫기</button></div>
-      <div class="hint" id="hexInfo"></div>
+      <div class="row"><button class="btn" id="hexReset">지운 육각 모두 되돌리기</button><button class="btn" id="hexPosReset">옮긴·놓은 육각 모두 되돌리기</button></div>
+      <div class="row"><button class="btn" id="hexClose">닫기</button></div>
+      <div class="hint" id="hexInfo"></div><div class="hint" id="hexMsg"></div>
     </div>
     <div id="islandPop" hidden>
       <b>섬 정리</b>

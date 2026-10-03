@@ -105,7 +105,7 @@
   };
 
   // ── 저장본(작업 상태 스냅샷) ──
-  const STATE_KEYS = ['values', 'overrides', 'overridesB', 'extra', 'renamed', 'showDong', 'showSido', 'unit', 'legend', 'lines', 'region', 'hexVal', 'hexName', 'islandMode', 'islandMax', 'islandCut', 'islandKeep', 'hexCut'];
+  const STATE_KEYS = ['values', 'overrides', 'overridesB', 'extra', 'renamed', 'showDong', 'showSido', 'unit', 'legend', 'lines', 'region', 'hexVal', 'hexName', 'islandMode', 'islandMax', 'islandCut', 'islandKeep', 'hexCut', 'hexPos', 'hexAdd'];
   Core.pickState = o => { const out = {}; for (const k of STATE_KEYS) if (o && o[k] !== undefined) out[k] = JSON.parse(JSON.stringify(o[k])); return out; };   // 복사본(원본과 연결 끊김)
   Core.summarize = st => ({ values: Object.keys(st.values || {}).length, dongEdits: Object.keys(st.overrides || {}).length, bjdEdits: Object.keys(st.overridesB || {}).length, newCenters: (st.extra || []).length });
   Core.makeSnapshot = (state, name, auto, d) => ({ id: d.getTime(), savedAt: d.toISOString(), name: name || '', auto: !!auto, summary: Core.summarize(state), state });
