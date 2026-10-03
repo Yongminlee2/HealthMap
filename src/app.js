@@ -392,9 +392,9 @@ function applyValues(rows) {
   if (iV < 0) iV = h.length - 1;
   const data = rows.slice(start).map(r => ({ sido: iS < 0 ? '' : r[iS], name: iN < 0 ? '' : r[iN], code: iC < 0 ? '' : r[iC], value: r[iV] }));
   const res = Core.matchRows(data, usedCenters());
-  S.values = res.values; refreshColors();
   const v = Object.values(res.values), nd = v.length;
-  msg('#dataMsg', nd ? `${nd}개 보건소에 값을 적용했습니다. (최소 ${fmt(Math.min(...v))} / 최대 ${fmt(Math.max(...v))})\n매칭 실패 ${res.unmatched.length}행\n→ [범례] 탭에서 구간과 색을 바꿀 수 있습니다.` : '적용된 값이 없습니다. 열 제목과 보건소 이름을 확인해 주세요.', !nd);
+  if (nd) { S.values = res.values; refreshColors(); }          // 하나도 못 맞췄으면 기존 값을 지우지 않는다(엉뚱한 파일을 올려도 작업이 안 날아가게)
+  msg('#dataMsg', nd ? `${nd}개 보건소에 값을 적용했습니다. (최소 ${fmt(Math.min(...v))} / 최대 ${fmt(Math.max(...v))})\n매칭 실패 ${res.unmatched.length}행\n→ [범례] 탭에서 구간과 색을 바꿀 수 있습니다.` : '적용된 값이 없습니다(기존 값은 그대로 두었습니다). 열 제목과 보건소 이름을 확인해 주세요.', !nd);
   $('#unmatchedBox').hidden = !res.unmatched.length;
   $('#unmatchedSum').textContent = `매칭 실패 ${res.unmatched.length}행 보기`;
   $('#unmatched').innerHTML = res.unmatched.slice(0, 200).map(r => esc([r.sido, r.name, r.code, r.value].filter(x => x !== '' && x !== undefined).join(' / '))).join('<br>');
@@ -502,6 +502,7 @@ $('#lineColors').innerHTML = LINE_DEFS.map(([k, t]) => `<div class="lrow"><span>
 function applyLines() {
   gBorder.setAttribute('stroke', S.lines.border); gInner.setAttribute('stroke', S.lines.inner); gSido.setAttribute('stroke', S.lines.sido);
   if (gHex) for (const el of gHex.querySelectorAll('.st19')) el.style.stroke = S.lines.sido;      // 육각 지도의 시도 경계선
+  if (gHex) for (const el of gHex.querySelectorAll('.svg_poly')) el.style.stroke = S.lines.border === newLines().border ? '' : S.lines.border;   // 육각 윤곽 = 보건소 경계선(기본색이면 원래 SVG 색 유지)
   for (const i of $('#lineColors').querySelectorAll('input[type=color]')) i.value = S.lines[i.dataset.k];
 }
 $('#lineColors').addEventListener('input', e => { if (e.target.dataset.k && e.target.type === 'color') { S.lines[e.target.dataset.k] = e.target.value; applyLines(); save(); } });
