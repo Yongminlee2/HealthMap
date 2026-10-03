@@ -208,6 +208,31 @@ fs.writeFileSync(D('exceptions_report.txt'), report.join('\n'));
   console.log(`매핑표 엑셀: 행정동 ${dongRows.length - 1}행, 보건소 ${centerRows.length - 1}행, 법정동 ${bjdRows.length - 1}행`);
 }
 
+// ── 4-3) 육각 지도: data/hex/ko-all.svg 를 앱에 내장할 조각으로 ─────────────────────
+// 육각 그룹 id(8자리)가 보건소 코드 260개와 정확히 같아야 한다(다르면 중단). CSS 는 전부 .hexroot 아래로 한정해 앱 화면과 섞이지 않게 한다.
+function scopeCss(css, prefix) {
+  css = css.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  let out = '', i = 0;
+  while (i < css.length) {
+    const open = css.indexOf('{', i); if (open < 0) break;
+    const pre = css.slice(i, open).trim(); let depth = 1, j = open + 1;
+    while (j < css.length && depth) { if (css[j] === '{') depth++; else if (css[j] === '}') depth--; j++; }
+    out += (pre.startsWith('@') ? pre : pre.split(',').map(x => prefix + ' ' + x.trim()).join(',')) + css.slice(open, j); i = j;
+  }
+  return out;
+}
+const hexSvg = fs.readFileSync(D('hex/ko-all.svg'), 'utf8');
+const hexIds = [...hexSvg.matchAll(/<g id="(\d{8})"/g)].map(m => m[1]);
+if (hexIds.length !== centers.length || new Set(hexIds).size !== hexIds.length || centers.some(c => !hexIds.includes(c.id))) throw new Error('육각 지도 SVG 의 육각 그룹이 보건소 260곳과 다릅니다');
+const REGION_CSS = '.hexroot.region g.hexagon:not(.on),.hexroot.region .sido-hexagon{display:none}.hexroot.region polyline,.hexroot.region line,.hexroot.region circle,.hexroot.region path,.hexroot.region polygon,.hexroot.region text{display:none}.hexroot.region g.hexagon.on polygon,.hexroot.region g.hexagon.on text{display:inline}';
+const hexAfter = hexSvg.slice(hexSvg.indexOf('</style>') + 8);
+const HEX = {
+  vb: hexSvg.match(/viewBox="([^"]+)"/)[1].split(/\s+/).map(Number),
+  css: scopeCss(hexSvg.slice(hexSvg.indexOf('>', hexSvg.indexOf('<style')) + 1, hexSvg.indexOf('</style>')), '.hexroot') + REGION_CSS,
+  body: hexAfter.replace(/<\/g>\s*<\/svg>\s*$/, ''),
+};
+console.log(`육각 지도: 육각 ${hexIds.length}개가 보건소 코드와 일치, 내장 크기 ${((HEX.css.length + HEX.body.length) / 1024).toFixed(0)}KB`);
+
 // ── 5) 조립 ─────────────────────────────────────────────────────────────
 const tpl = path.join(root, 'src', 'app.html');
 if (fs.existsSync(tpl)) {
@@ -215,9 +240,10 @@ if (fs.existsSync(tpl)) {
   const lib = f => read(path.join(__dirname, 'node_modules', f)).replace(/<\/script/gi, '<\\/script').replace(/\/\/# sourceMappingURL=.*$/m, '');
   const slots = {
     '/*@CORE@*/': read(path.join(root, 'src', 'core.js')),
+    '/*@SHP@*/': read(path.join(root, 'src', 'shp.js')),
     '/*@APP@*/': read(path.join(root, 'src', 'app.js')),
     '/*@LIBS@*/': lib('xlsx/dist/xlsx.mini.min.js'),
-    '/*@DATA@*/': 'const TOPO=' + JSON.stringify(dongTopo) + ';\nconst TOPO_B=' + JSON.stringify(emdTopo) + ';\nconst CENTERS=' + JSON.stringify(centers) + ';',
+    '/*@DATA@*/': 'const TOPO=' + JSON.stringify(dongTopo) + ';\nconst TOPO_B=' + JSON.stringify(emdTopo) + ';\nconst CENTERS=' + JSON.stringify(centers) + ';\nconst HEX=' + JSON.stringify(HEX) + ';',
   };
   let html = read(tpl);
   for (const [k, v] of Object.entries(slots)) html = html.split(k).join(v);
