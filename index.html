@@ -651,7 +651,9 @@ function computeBounds() {
       if (x0 <= x1) return setBounds(x0, y0, x1, y1);
     }
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;                // SVG 에 적힌 크기보다 실제 그림이 더 크다(남쪽 줄) → 그려진 육각들의 실제 범위
+    const hadRegion = gHex.classList.contains('region'); gHex.classList.remove('region');   // 시도 보기로 숨겨 둔 육각도 재야 전국 범위가 나온다(숨겨진 것은 크기가 0으로 잡힌다)
     for (const g of gHex.querySelectorAll('g.hexagon')) { let q; try { q = g.getBBox(); } catch (e) { continue; } if (!q.width) continue; x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + q.width); y1 = Math.max(y1, q.y + q.height); }
+    if (hadRegion) gHex.classList.add('region');
     if (x0 <= x1) return setBounds((x0 - vx) * K - 8, (y0 - vy) * K - 8, (x1 - vx) * K + 8, (y1 - vy) * K + 8);
     return setBounds(0, 0, vw * K, vh * K);
   }
