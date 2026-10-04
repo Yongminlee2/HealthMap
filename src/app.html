@@ -51,13 +51,13 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
 .lrow { display:flex; align-items:center; gap:6px; margin:6px 0; } .lrow > span { width:112px; flex:none; }
 .lrow input[type=color] { width:34px; height:26px; padding:0; border:1px solid var(--line); flex:none; }
 .sw { width:20px; height:20px; padding:0; border:1px solid #9aa5b1; border-radius:50%; cursor:pointer; flex:none; }
-#shpPop { position:absolute; z-index:7; top:58px; right:12px; width:330px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#shpPop { position:absolute; z-index:7; top:var(--popTop,58px); right:12px; max-height:calc(100% - var(--popTop,58px) - 12px); overflow-y:auto; width:330px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #shpPop[hidden] { display:none; } #shpPop label { display:block; margin:6px 0; }
 #tools { flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 24px); } #tools select { width:auto; padding:4px 6px; }
 .hex-only { display:none; } body.hexmode .hex-only { display:inline; } body.hexmode .gis-only { display:none; }
-#hexPop { position:absolute; z-index:7; top:58px; right:12px; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#hexPop { position:absolute; z-index:7; top:var(--popTop,58px); right:12px; max-height:calc(100% - var(--popTop,58px) - 12px); overflow-y:auto; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #hexPop[hidden] { display:none; } #hexPop label { display:block; margin:6px 0; }
-#islandPop { position:absolute; z-index:7; top:58px; right:12px; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#islandPop { position:absolute; z-index:7; top:var(--popTop,58px); right:12px; max-height:calc(100% - var(--popTop,58px) - 12px); overflow-y:auto; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #islandPop[hidden] { display:none; } #islandPop label { display:block; margin:6px 0; } #islandPop select { width:100%; }
 #marq { position:absolute; display:none; z-index:6; pointer-events:none; border:1.5px dashed #d1242f; background:rgba(209,36,47,.08); }
 #map.isl { cursor:crosshair; } #map.isl.hexmv { cursor:move; }

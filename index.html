@@ -51,13 +51,13 @@ details.guide ol { margin:6px 0 4px; padding-left:18px; } details.guide p { marg
 .lrow { display:flex; align-items:center; gap:6px; margin:6px 0; } .lrow > span { width:112px; flex:none; }
 .lrow input[type=color] { width:34px; height:26px; padding:0; border:1px solid var(--line); flex:none; }
 .sw { width:20px; height:20px; padding:0; border:1px solid #9aa5b1; border-radius:50%; cursor:pointer; flex:none; }
-#shpPop { position:absolute; z-index:7; top:58px; right:12px; width:330px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#shpPop { position:absolute; z-index:7; top:var(--popTop,58px); right:12px; max-height:calc(100% - var(--popTop,58px) - 12px); overflow-y:auto; width:330px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #shpPop[hidden] { display:none; } #shpPop label { display:block; margin:6px 0; }
 #tools { flex-wrap:wrap; justify-content:flex-end; max-width:calc(100% - 24px); } #tools select { width:auto; padding:4px 6px; }
 .hex-only { display:none; } body.hexmode .hex-only { display:inline; } body.hexmode .gis-only { display:none; }
-#hexPop { position:absolute; z-index:7; top:58px; right:12px; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#hexPop { position:absolute; z-index:7; top:var(--popTop,58px); right:12px; max-height:calc(100% - var(--popTop,58px) - 12px); overflow-y:auto; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #hexPop[hidden] { display:none; } #hexPop label { display:block; margin:6px 0; }
-#islandPop { position:absolute; z-index:7; top:58px; right:12px; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
+#islandPop { position:absolute; z-index:7; top:var(--popTop,58px); right:12px; max-height:calc(100% - var(--popTop,58px) - 12px); overflow-y:auto; width:350px; padding:12px; background:#fff; border:1px solid var(--line); border-radius:8px; box-shadow:0 6px 20px rgba(0,0,0,.18); }
 #islandPop[hidden] { display:none; } #islandPop label { display:block; margin:6px 0; } #islandPop select { width:100%; }
 #marq { position:absolute; display:none; z-index:6; pointer-events:none; border:1.5px dashed #d1242f; background:rgba(209,36,47,.08); }
 #map.isl { cursor:crosshair; } #map.isl.hexmv { cursor:move; }
@@ -942,6 +942,7 @@ function mappingRows() {
   computeHC();
   const rows = [['행정동코드', '행정동명', '보건소코드', '보건소명', '시도', '법정동코드', '법정동명']];
   A.props.forEach((p, i) => { const c = cmap.get(dongHC[i]); rows.push([p.c, dongLabel(i), c.id, c.name, c.sido, '', '']); });
+  for (const e of S.extra) if (!hc.includes(e.id) && !dongHC.includes(e.id)) rows.push(['', '', e.id, e.name, e.sido, '', '']);   // 소속 구역이 없는 새 보건소도 잃지 않게(육각 지도에만 있을 수 있음)
   if (Object.keys(S.overridesB).length) {
     B = B || buildLayer(TOPO_B);
     for (const [code, id] of Object.entries(S.overridesB)) { const i = B.idx.get(code), c = cmap.get(id); if (i !== undefined && c) rows.push(['', '', c.id, c.name, c.sido, code, B.props[i].n]); }
@@ -960,7 +961,7 @@ function importMapping(rows) {
     if (!all.has(id)) {
       if (!name) return null;
       const sido = (iS >= 0 && String(r[iS]).trim()) || fallbackSido;
-      let ex = S.extra.find(c => c.name === name && c.sido === sido);
+      let ex = /^X\d+$/.test(id) ? S.extra.find(c => c.id === id) : S.extra.find(c => c.name === name && c.sido === sido);   // 코드(X번호)가 있으면 그 보건소 그대로 되살린다(같은 이름이 둘이어도 섞이지 않게)
       if (!ex) { ex = { id: newId(id), sido, name }; S.extra.push(ex); all.set(ex.id, ex); made++; }
       return ex.id;
     }
@@ -969,6 +970,7 @@ function importMapping(rows) {
   };
   for (const r of rows.slice(1)) {
     if (iB >= 0 && String(r[iB]).trim()) { bRows.push(r); continue; }
+    if (!String(r[iD] ?? '').trim() && iS >= 0 && String(r[iS]).trim()) { if (!centerFor(r, '')) skipped++; continue; }      // 구역 없이 보건소만 적힌 줄 = 소속 구역이 없는 새 보건소
     const di = A.idx.get(String(r[iD]).trim()); if (di === undefined) { skipped++; continue; }
     const id = centerFor(r, defCenter.get(A.props[di].g).sido); if (!id) { skipped++; continue; }
     if (id !== A.props[di].g) S.overrides[A.props[di].c] = id;
@@ -1110,9 +1112,11 @@ function getSpots(skip) {                                       // skip: 이 보
   const cut = new Set(S.hexCut), cs = [];
   for (const [id, h] of hexById) if (!cut.has(id) && id !== skip) cs.push({ id, x: h.c0[0] + h.dx, y: h.c0[1] + h.dy });
   const DX = hexW * 0.75, DY = hexH / 2, off = [[DX, DY], [DX, -DY], [-DX, DY], [-DX, -DY], [0, 2 * DY], [0, -2 * DY]], free = [];
-  for (const c of cs) for (const [ox, oy] of off) { const x = c.x + ox, y = c.y + oy; if (!cs.some(q => Math.hypot(q.x - x, q.y - y) < hexH * 0.4)) free.push({ id: null, x, y }); }
+  for (const c of cs) for (const [ox, oy] of off) { const x = c.x + ox, y = c.y + oy; if (!cs.some(q => Math.hypot(q.x - x, q.y - y) < hexH * 0.92)) free.push({ id: null, x, y }); }
   spotCache = { key, spots: cs.concat(free) }; return spotCache.spots;
 }
+// 다른 육각과 겹치지 않는지(이웃한 육각의 중심 거리는 육각 높이 정도이므로 그보다 훨씬 가까우면 겹친다)
+const hexClear = (x, y, ign) => { for (const [id, h] of hexById) if (!ign.includes(id) && !S.hexCut.includes(id) && Math.hypot(h.c0[0] + h.dx - x, h.c0[1] + h.dy - y) < hexH * 0.92) return false; return true; };
 const nearSpot = (spots, x, y) => { let best = null, bd = hexH * 0.65; for (const s of spots) { const d = Math.hypot(s.x - x, s.y - y); if (d < bd) { bd = d; best = s; } } return best; };
 function showGhost(s, swap) {
   if (!gHexGhost) return;
@@ -1130,6 +1134,7 @@ function afterHexLayout() { recolorHex(); computeBounds(); drawIslSel(); renderO
 function hexEditBlocked() { if (!S.region) return false; hexMsg("시도 보기에서는 옮기거나 놓을 수 없습니다. 위쪽에서 '전국'으로 바꿔 주세요.", true); return true; }
 function commitHexMove(d, s) {                                  // s.id 가 있으면 그 육각과 자리를 바꾼다
   const h = d.h, orig = [h.c0[0] + d.dx0, h.c0[1] + d.dy0];
+  if (!hexClear(s.x, s.y, [d.id, s.id].filter(Boolean))) { placeHex(d.id); return hexMsg('그 자리는 다른 육각과 겹쳐서 놓을 수 없습니다.', true); }
   if (s.id) { const o = hexById.get(s.id); setPos(s.id, orig[0] - o.c0[0], orig[1] - o.c0[1]); }
   setPos(d.id, s.x - h.c0[0], s.y - h.c0[1]); afterHexLayout();
   hexMsg(s.id ? `'${cmap.get(d.id)?.name}' 과(와) '${cmap.get(s.id)?.name}' 의 자리를 바꿨습니다.` : `'${cmap.get(d.id)?.name}' 육각을 옮겼습니다.`);
@@ -1139,6 +1144,7 @@ function placeSel(e) {
   if (!sel || !cmap.get(sel)) return hexMsg('먼저 왼쪽 [배정 편집] 탭에서 놓을 보건소를 고르세요.', true);
   const [mx, my] = svgPt(e), [vx, vy] = HEX.vb, s = nearSpot(getSpots(sel), mx / HEXK + vx, my / HEXK + vy);
   if (!s || s.id) return hexMsg('빈 자리를 클릭하세요(연한 초록 윤곽이 놓일 자리입니다).', true);
+  if (!hexClear(s.x, s.y, [sel])) return hexMsg('그 자리는 다른 육각과 겹쳐서 놓을 수 없습니다.', true);
   S.hexCut = S.hexCut.filter(x => x !== sel); if (!hexById.has(sel) && !S.hexAdd.includes(sel)) S.hexAdd.push(sel);
   recolorHex(); const h = hexById.get(sel); setPos(sel, s.x - h.c0[0], s.y - h.c0[1]); afterHexLayout();
   hexMsg(`'${cmap.get(sel).name}' 육각을 놓았습니다.`);
@@ -1150,7 +1156,7 @@ $('#hexPosReset').onclick = () => {
   S.hexPos = {}; S.hexAdd = []; recolorHex(); computeBounds(); fit(); drawIslSel(); renderOverlay(); save();
 };
 const hexPop = $('#hexPop');
-$('#hexEditBtn').onclick = () => { $('#shpPop').hidden = true; hexPop.hidden = !hexPop.hidden; if (!hexPop.hidden) renderHexInfo(); };
+$('#hexEditBtn').onclick = () => { syncPopTop(); $('#shpPop').hidden = true; hexPop.hidden = !hexPop.hidden; if (!hexPop.hidden) renderHexInfo(); };
 $('#hexClose').onclick = () => { hexPop.hidden = true; };
 $('#hexEdit').onchange = e => { islEdit = e.target.checked; map.classList.toggle('isl', islEdit); map.classList.toggle('hexmv', islEdit && hexTool() !== 'select'); if (!islEdit) { selHex.clear(); drawIslSel(); showGhost(null); } };
 $('#hexDel').onclick = deleteHexes;
@@ -1161,12 +1167,14 @@ $('#islandSel').onchange = e => { S.islandMode = e.target.value; islandsReload(t
 $('#islandKeep').checked = S.islandKeep !== false;
 $('#islandKeep').onchange = e => { S.islandKeep = e.target.checked; islandsReload(S.islandMode === 'hide'); };
 $('#islandMax').onchange = e => { S.islandMax = +e.target.value; islandsReload(S.islandMode === 'hide'); };
-$('#islandBtn').onclick = () => { $('#shpPop').hidden = true; hexPop.hidden = true; islPop.hidden = !islPop.hidden; if (!islPop.hidden) renderIslandInfo(); };
+$('#islandBtn').onclick = () => { syncPopTop(); $('#shpPop').hidden = true; hexPop.hidden = true; islPop.hidden = !islPop.hidden; if (!islPop.hidden) renderIslandInfo(); };
 $('#islandClose').onclick = () => { islPop.hidden = true; };
 $('#islandEdit').onchange = e => { islEdit = e.target.checked; map.classList.toggle('isl', islEdit); if (!islEdit) { selIsl.clear(); drawIslSel(); } };
 $('#islandDel').onclick = deleteIslands;
 $('#islandClear').onclick = () => { selIsl.clear(); drawIslSel(); };
 $('#islandReset').onclick = () => { if (!confirm('직접 삭제한 섬을 모두 되돌릴까요?')) return; S.islandCut = { dong: [], bjd: [] }; selIsl.clear(); islandsReload(true); };
+const syncPopTop = () => { const t = $('#tools'); stage.style.setProperty('--popTop', (t.offsetTop + t.offsetHeight + 8) + 'px'); };   // 도구줄이 두 줄로 접혀도 팝업이 버튼을 가리지 않게
+if (window.ResizeObserver) new ResizeObserver(syncPopTop).observe($('#tools')); window.addEventListener('resize', syncPopTop); syncPopTop();
 $('#fitBtn').onclick = fit; $('#zoomIn').onclick = () => zoomBy(1 / 1.5); $('#zoomOut').onclick = () => zoomBy(1.5);
 $('#edit').onchange = e => { editMode = e.target.checked; map.classList.toggle('edit', editMode); drawSel(); };
 function zoomToSel() {
@@ -1187,7 +1195,7 @@ $('#csrch').oninput = renderAssignPanel;
 $('#csel').onchange = e => { sel = e.target.value; renderAssignPanel(); drawSel(); };
 $('#crename').onclick = () => {
   const n = $('#cname').value.trim(); if (!sel || !n) return;
-  if (S.extra.some(e => e.id === sel)) S.extra.find(e => e.id === sel).name = n; else S.renamed[sel] = n;
+  if (S.extra.some(e => e.id === sel)) S.extra.find(e => e.id === sel).name = n; else if (n === defCenter.get(sel)?.name) delete S.renamed[sel]; else S.renamed[sel] = n;   // 원래 이름으로 바꾸면 '바꾼 이름'으로 치지 않는다(육각 글자도 원래대로)
   refresh();
 };
 $('#newbtn').onclick = () => {
@@ -1359,6 +1367,7 @@ function shpExport(mode) {
 }
 const shpPop = $('#shpPop');
 $('#shpBtn').onclick = () => {
+  syncPopTop();
   islPop.hidden = true; hexPop.hidden = true;
   if (!shpPop.hidden) { shpPop.hidden = true; return; }
   const hexOn = hexMode(); $('#shpLblUnit').parentNode.style.display = hexOn ? 'none' : ''; $('#shpHint').textContent = hexOn ? '육각 지도 모양 그대로 저장됩니다(보건소 하나 = 육각 하나). 그림 좌표라서 좌표계는 없습니다. 지금 화면의 값·구간·색이 속성(표)에 들어가고 글자는 CP949입니다.' : '지금 화면의 보건소 배정·값·구간·색이 속성(표)에 들어갑니다. 좌표계는 WGS84(경위도), 글자는 CP949입니다. 경계는 지도용으로 단순화한 것이라 정밀 측량용은 아닙니다.';
@@ -1459,7 +1468,7 @@ $('#resetAll').onclick = () => {
 window.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); quickSave(); } });
 renderHistory();
 setUnit(S.unit); fit();
-window.__hm = { addSnapshot, applyState, get hist() { return hist; }, get meta() { return meta; }, S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get bnd() { return bnd; }, composite, get vb() { return vb; }, computeBounds, fit, zoomBy, zoomToSel, get cmap() { return cmap; }, setUnit };   // 점검용
+window.__hm = { addSnapshot, applyState, get hist() { return hist; }, get meta() { return meta; }, S, A, get B() { return B; }, get L() { return L; }, get hc() { return hc; }, get bnd() { return bnd; }, get hexById() { return hexById; }, composite, get vb() { return vb; }, computeBounds, fit, zoomBy, zoomToSel, get cmap() { return cmap; }, setUnit };   // 점검용
 })();
 
 </script>
