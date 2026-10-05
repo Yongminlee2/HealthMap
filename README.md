@@ -8,6 +8,9 @@
 - [개발일지](docs/개발일지.md) — 만든 순서, 바꾼 결정과 이유, 겪은 문제와 해결, 검증 방법
 - [CHANGELOG](CHANGELOG.md) — 날짜별 변경 요약
 
+## 배포본 받기
+[`release/`](release/) 폴더의 압축 파일(`보건소지도_배포본_날짜.zip`)을 받아 풀면 `보건소지도.html`·사용방법·값 입력 양식·매핑표가 들어 있습니다. 직접 만들려면 `cd tools && node build.js && python make_dist.py` (결과는 `배포/`, 올릴 때는 `release/` 로 복사).
+
 ## 점검 방법
 - `node tests/core.test.js`, `node tests/shp.test.js` — 순수 로직(구간·색·CSV·매칭, SHP 생성)
 - 앱을 연 브라우저 탭 콘솔에서 `tests/browser-fit-check.js`(화면 맞춤·확대 85개 조합), `tests/browser-fuzz.js`(`await fuzz(시드, 단계수)`, 무작위 조작 점검) 실행. 점검용 훅 `window.__hm` 을 씁니다.
